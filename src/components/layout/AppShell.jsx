@@ -3,6 +3,7 @@ import { Outlet } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import Header from './Header'
 import { useUser } from '../../context/UserContext'
+import { ErrorBoundary } from '../common/ErrorBoundary'
 
 export function AppShell() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
@@ -28,7 +29,9 @@ export function AppShell() {
         />
 
         <main className="flex-1 p-4 sm:p-8 max-w-7xl w-full mx-auto">
-          <Outlet />
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
     </div>

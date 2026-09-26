@@ -28,6 +28,7 @@ import {
   FileCheck2,
   Video,
   Map,
+  ChevronDown,
 } from 'lucide-react'
 
 export function DesignSystemPage() {

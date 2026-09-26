@@ -26,7 +26,22 @@ export function ResumeBuilderPage() {
   const [data, setData] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY)
-      return saved ? JSON.parse(saved) : INITIAL_RESUME_DATA
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        return {
+          ...INITIAL_RESUME_DATA,
+          ...parsed,
+          personalInfo: { ...INITIAL_RESUME_DATA.personalInfo, ...(parsed.personalInfo || {}) },
+          education: parsed.education || INITIAL_RESUME_DATA.education || [],
+          experience: parsed.experience || INITIAL_RESUME_DATA.experience || [],
+          projects: parsed.projects || INITIAL_RESUME_DATA.projects || [],
+          skills: parsed.skills || INITIAL_RESUME_DATA.skills || [],
+          certifications: parsed.certifications || INITIAL_RESUME_DATA.certifications || [],
+          achievements: parsed.achievements || INITIAL_RESUME_DATA.achievements || [],
+          codingProfiles: { ...INITIAL_RESUME_DATA.codingProfiles, ...(parsed.codingProfiles || {}) },
+        }
+      }
+      return INITIAL_RESUME_DATA
     } catch {
       return INITIAL_RESUME_DATA
     }
@@ -49,13 +64,13 @@ export function ResumeBuilderPage() {
   // Calculate completeness percentage
   const calculateCompleteness = () => {
     let score = 0
-    if (data.personalInfo.name && data.personalInfo.email && data.personalInfo.phone) score += 20
-    if (data.summary && data.summary.length > 30) score += 15
-    if (data.education && data.education.length > 0) score += 15
-    if (data.skills && data.skills.length >= 4) score += 15
-    if (data.experience && data.experience.length > 0) score += 15
-    if (data.projects && data.projects.length >= 2) score += 15
-    if (data.certifications && data.certifications.length > 0) score += 5
+    if (data?.personalInfo?.name && data?.personalInfo?.email && data?.personalInfo?.phone) score += 20
+    if (data?.summary && data.summary.length > 30) score += 15
+    if (data?.education && data.education.length > 0) score += 15
+    if (data?.skills && data.skills.length >= 4) score += 15
+    if (data?.experience && data.experience.length > 0) score += 15
+    if (data?.projects && data.projects.length >= 2) score += 15
+    if (data?.certifications && data.certifications.length > 0) score += 5
     return Math.min(100, score)
   }
 
@@ -64,10 +79,10 @@ export function ResumeBuilderPage() {
   // Suggestions for missing elements
   const getSuggestions = () => {
     const suggestions = []
-    if (!data.personalInfo.github) suggestions.push('Add your GitHub profile URL')
-    if (!data.personalInfo.linkedin) suggestions.push('Add your LinkedIn profile URL')
-    if (data.projects.length < 2) suggestions.push('Include at least 2 full-stack or systems projects')
-    if (data.certifications.length === 0) suggestions.push('Add relevant cloud or algorithmic certifications')
+    if (!data?.personalInfo?.github) suggestions.push('Add your GitHub profile URL')
+    if (!data?.personalInfo?.linkedin) suggestions.push('Add your LinkedIn profile URL')
+    if ((data?.projects?.length || 0) < 2) suggestions.push('Include at least 2 full-stack or systems projects')
+    if ((data?.certifications?.length || 0) === 0) suggestions.push('Add relevant cloud or algorithmic certifications')
     return suggestions
   }
 
@@ -560,7 +575,7 @@ export function ResumeBuilderPage() {
                     <Input
                       value={cert.name}
                       onChange={(e) => {
-                        const arr = [...data.certifications]
+                        const arr = [...(data.certifications || [])]
                         arr[idx].name = e.target.value
                         setData({ ...data, certifications: arr })
                       }}
@@ -568,7 +583,7 @@ export function ResumeBuilderPage() {
                     <Input
                       value={cert.issuer}
                       onChange={(e) => {
-                        const arr = [...data.certifications]
+                        const arr = [...(data.certifications || [])]
                         arr[idx].issuer = e.target.value
                         setData({ ...data, certifications: arr })
                       }}
@@ -576,7 +591,7 @@ export function ResumeBuilderPage() {
                     <Input
                       value={cert.date}
                       onChange={(e) => {
-                        const arr = [...data.certifications]
+                        const arr = [...(data.certifications || [])]
                         arr[idx].date = e.target.value
                         setData({ ...data, certifications: arr })
                       }}
@@ -611,7 +626,7 @@ export function ResumeBuilderPage() {
                   <Input
                     value={ach}
                     onChange={(e) => {
-                      const arr = [...data.achievements]
+                      const arr = [...(data.achievements || [])]
                       arr[idx] = e.target.value
                       setData({ ...data, achievements: arr })
                     }}

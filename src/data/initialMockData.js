@@ -86,6 +86,22 @@ export const INITIAL_RESUME_DATA = {
       cgpa: '8.8 / 10.0',
     },
   ],
+  certifications: [
+    {
+      name: 'AWS Certified Cloud Practitioner',
+      issuer: 'Amazon Web Services',
+      date: '2025',
+    },
+  ],
+  achievements: [
+    'Top 3% rank among 40,000+ candidates in National Coding Olympiad 2025',
+    'Finalist in Smart India Hackathon 2025 among 1,200+ teams',
+  ],
+  codingProfiles: {
+    leetcode: 'sampath_s (350+ solved)',
+    codeforces: 'sampath_cf (Pupil)',
+    hackerrank: 'sampath_hr (5-star Problem Solving)',
+  },
 }
 
 export const INITIAL_INTERVIEW_LIST = [

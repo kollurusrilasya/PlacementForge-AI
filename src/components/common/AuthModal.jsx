@@ -6,6 +6,7 @@ import { Input } from './Input'
 import { PrimaryButton } from './Button'
 import { useUser } from '../../context/UserContext'
 import { useToast } from '../../context/ToastContext'
+import { apiRequest } from '../../services/api';
 
 export function AuthModal({ isOpen, onClose, initialTab = 'login' }) {
   const [tab, setTab] = useState(initialTab)
@@ -18,24 +19,50 @@ export function AuthModal({ isOpen, onClose, initialTab = 'login' }) {
   const toast = useToast()
   const navigate = useNavigate()
 
-  const handleAuth = (e) => {
-    e.preventDefault()
-    setLoading(true)
-    setTimeout(() => {
-      setLoading(false)
-      if (tab === 'register' && name) {
-        updateUser({ name, email })
+  const handleAuth = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+  
+    try {
+      if (tab === 'register') {
+        const data = await apiRequest('/api/auth/register', {
+          method: 'POST',
+          body: JSON.stringify({ name, email, password }),
+        });
+  
+        toast.show(data.message, { type: 'success' });
+  
+        // Switch to login after successful registration
+        setTab('login');
+        setPassword('');
+      } else {
+        const data = await apiRequest('/api/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({ email, password }),
+        });
+  
+        // Save JWT token
+        localStorage.setItem('placement_forge_token', data.token);
+  
+        // Update logged-in user
+        updateUser({
+          name: data.user.name,
+          email: data.user.email,
+        });
+  
+        toast.show('Welcome back to Placement Forge AI', {
+          type: 'success',
+        });
+  
+        onClose();
+        navigate('/dashboard');
       }
-      toast.show(
-        tab === 'login'
-          ? 'Welcome back to Placement Forge AI'
-          : 'Account created successfully',
-        { type: 'success' }
-      )
-      onClose()
-      navigate('/dashboard')
-    }, 450)
-  }
+    } catch (error) {
+      toast.show(error.message, { type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleDemoLogin = () => {
     setLoading(true)

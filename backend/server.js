@@ -10,14 +10,30 @@ const multer = require("multer");
 
 const User = require("./models/User");
 const Skill = require("./models/Skill");
-const Resume = require("./models/Resume");
+const Resume = require("./models/resume");
 const ExtractedSkill = require("./models/ExtractedSkill");
 const TargetRole = require("./models/TargetRole");
 const SkillGap = require("./models/SkillGap");
 const Roadmap = require("./models/Roadmap");
 const authMiddleware = require("./middleware/authMiddleware");
-
+const cors = require("cors");
+const path = require("path");
 const app = express();
+app.use(cors({
+    origin: [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "https://placement-forge-ai.vercel.app"
+    ],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"]
+}));
+
+app.use(express.json());
+app.use(
+    "/uploads",
+    express.static(path.join(__dirname, "uploads"))
+);
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         cb(null, "uploads/");
@@ -31,7 +47,6 @@ const storage = multer.diskStorage({
 const upload = multer({
     storage: storage
 });
-app.use(express.json());
 
 
 // ==================== HEALTH CHECK ====================
@@ -837,3 +852,58 @@ mongoose.connect(process.env.MONGO_URI)
 app.listen(process.env.PORT || 5000, () => {
     console.log("PlacementForge AI backend is running");
 });
+// GET saved Resume Builder data
+app.get("/api/resume/builder", authMiddleware, async (req, res) => {
+    try {
+        const resume = await Resume.findOne({
+            userId: req.userId
+        });
+
+        res.status(200).json({
+            resumeData: resume ? resume.resumeData : null
+        });
+
+    } catch (error) {
+        console.error("Error fetching resume:", error);
+        res.status(500).json({
+            message: "Failed to fetch resume data"
+        });
+    }
+});
+
+
+// SAVE or UPDATE Resume Builder data
+app.put("/api/resume/builder", authMiddleware, async (req, res) => {
+    try {
+        const { resumeData } = req.body;
+
+        if (!resumeData || typeof resumeData !== "object" || Array.isArray(resumeData)) {
+            return res.status(400).json({
+                message: "Valid resume data is required"
+            });
+        }
+
+        const resume = await Resume.findOneAndUpdate(
+            { userId: req.userId },
+            { $set: { resumeData } },
+            {
+                new: true,
+                upsert: true,
+                setDefaultsOnInsert: true,
+                runValidators: true
+            }
+        );
+
+        res.status(200).json({
+            message: "Resume saved successfully",
+            resumeData: resume.resumeData
+        });
+
+    } catch (error) {
+        console.error("Error saving resume:", error);
+        res.status(500).json({
+            message: "Failed to save resume data"
+        });
+    }
+});
+

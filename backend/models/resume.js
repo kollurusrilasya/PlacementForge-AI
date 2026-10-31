@@ -9,14 +9,20 @@ const resumeSchema = new mongoose.Schema({
 
     resumeUrl: {
         type: String,
-        required: true
+        default: ""
     },
 
     resumeText: {
         type: String,
         default: ""
+    },
+
+    resumeData: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
     }
-});
+
+}, { timestamps: true });
 
 const Resume = mongoose.model("Resume", resumeSchema);
 

@@ -1,9 +1,12 @@
+
 import React, { createContext, useContext, useState, useEffect } from 'react'
 import { INITIAL_USER } from '../data/initialMockData'
+import { apiRequest } from '../services/api'
 
 const UserContext = createContext(null)
 
 const STORAGE_KEY = 'placement_forge_user'
+const TOKEN_KEY = 'placement_forge_token'
 
 export function UserProvider({ children }) {
   const [user, setUser] = useState(() => {
@@ -15,6 +18,34 @@ export function UserProvider({ children }) {
     }
   })
 
+  // Fetch actual logged-in user from backend
+  useEffect(() => {
+    const fetchProfile = async () => {
+      const token = localStorage.getItem(TOKEN_KEY)
+
+      if (!token) return
+
+      try {
+        const data = await apiRequest('/api/profile', {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        })
+
+        setUser((prev) => ({
+          ...prev,
+          name: data.user.name,
+          email: data.user.email,
+        }))
+      } catch (error) {
+        console.error('Failed to fetch profile:', error.message)
+      }
+    }
+
+    fetchProfile()
+  }, [])
+
+  // Save user information in localStorage
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(user))
@@ -29,16 +60,26 @@ export function UserProvider({ children }) {
 
   const spendCredits = (amount) => {
     if (user.credits < amount) return false
-    setUser((prev) => ({ ...prev, credits: prev.credits - amount }))
+
+    setUser((prev) => ({
+      ...prev,
+      credits: prev.credits - amount,
+    }))
+
     return true
   }
 
   const addCredits = (amount) => {
-    setUser((prev) => ({ ...prev, credits: prev.credits + amount }))
+    setUser((prev) => ({
+      ...prev,
+      credits: prev.credits + amount,
+    }))
   }
 
   return (
-    <UserContext.Provider value={{ user, setUser, updateUser, spendCredits, addCredits }}>
+    <UserContext.Provider
+      value={{ user, setUser, updateUser, spendCredits, addCredits }}
+    >
       {children}
     </UserContext.Provider>
   )
@@ -46,9 +87,11 @@ export function UserProvider({ children }) {
 
 export function useUser() {
   const context = useContext(UserContext)
+
   if (!context) {
     throw new Error('useUser must be used within a UserProvider')
   }
+
   return context
 }
 

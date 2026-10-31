@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import {
+import React, { useEffect, useState } from 'react'
+import{
   PageHeader,
   LightCard,
   Badge,
@@ -11,6 +11,7 @@ import {
 import ResumePreview from '../components/resume/ResumePreview'
 import { INITIAL_RESUME_DATA } from '../data/initialMockData'
 import { useToast } from '../context/ToastContext'
+import { apiRequest } from '../services/api'
 import {
   Save,
   Plus,
@@ -50,14 +51,86 @@ export function ResumeBuilderPage() {
   const [template, setTemplate] = useState('classic')
   const [mobileTab, setMobileTab] = useState('editor') // 'editor' | 'preview'
   const toast = useToast()
+  // Load saved resume data from MongoDB
+useEffect(() => {
+  const loadResume = async () => {
+    const token = localStorage.getItem('placement_forge_token')
+
+    if (!token) return
+
+    try {
+      const response = await apiRequest('/api/resume/builder', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+
+      if (response.resumeData) {
+        const parsed = response.resumeData
+
+        setData({
+          ...INITIAL_RESUME_DATA,
+          ...parsed,
+          personalInfo: {
+            ...INITIAL_RESUME_DATA.personalInfo,
+            ...(parsed.personalInfo || {}),
+          },
+          education: parsed.education || [],
+          experience: parsed.experience || [],
+          projects: parsed.projects || [],
+          skills: parsed.skills || [],
+          certifications: parsed.certifications || [],
+          achievements: parsed.achievements || [],
+          codingProfiles: {
+            ...INITIAL_RESUME_DATA.codingProfiles,
+            ...(parsed.codingProfiles || {}),
+          },
+        })
+
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed))
+      }
+    } catch (error) {
+      console.error('Failed to load resume:', error)
+      toast.show('Could not load saved resume from server', {
+        type: 'error',
+      })
+    }
+  }
+
+  loadResume()
+}, [])
 
   // Save to localStorage
-  const handleSave = () => {
+  const handleSave = async () => {
+    const token = localStorage.getItem('placement_forge_token')
+  
+    if (!token) {
+      toast.show('Please login to save your resume', { type: 'error' })
+      return false
+    }
+  
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
-      toast.show('Resume draft saved successfully to local workspace', { type: 'success' })
-    } catch {
-      toast.show('Failed to save resume draft', { type: 'error' })
+  
+      const response = await apiRequest('/api/resume/builder', {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ resumeData: data }),
+      })
+  
+      toast.show('Resume saved successfully', {
+        type: 'success',
+      })
+  
+      return true
+    } catch (error) {
+      console.error('Resume save error:', error)
+      toast.show(error.message || 'Failed to save resume to server', {
+        type: 'error',
+      })
+      return false
     }
   }
 

@@ -18,6 +18,8 @@ const Roadmap = require("./models/Roadmap");
 const authMiddleware = require("./middleware/authMiddleware");
 const cors = require("cors");
 const path = require("path");
+const { ROLE_REQUIREMENTS, calculateATSScore } = require("./utils/atsScorer");
+const { parseResumeText } = require("./utils/resumeParser");
 const app = express();
 app.use(cors({
     origin: [
@@ -160,6 +162,7 @@ app.post("/api/auth/login", async (req, res) => {
             });
         }
 
+        console.log("JWT secret loaded:", !!process.env.JWT_SECRET);
         const token = jwt.sign(
             { userId: user._id },
             process.env.JWT_SECRET,
@@ -478,6 +481,7 @@ app.delete("/api/resume", authMiddleware, async (req, res) => {
     }
 });
 
+
 app.post(
     "/api/resume/upload",
     authMiddleware,
@@ -490,35 +494,48 @@ app.post(
                 });
             }
 
-            const resumeUrl = `/uploads/${req.file.filename}`;
+            // Accept PDF files only
+            if (req.file.mimetype !== "application/pdf") {
+                fs.unlinkSync(req.file.path);
 
-            const existingResume = await Resume.findOne({
-                userId: req.userId
-            });
-
-            if (existingResume) {
-                existingResume.resumeUrl = resumeUrl;
-                await existingResume.save();
-
-                return res.json({
-                    message: "Resume uploaded successfully",
-                    resume: existingResume
+                return res.status(400).json({
+                    message: "Only PDF files are allowed"
                 });
             }
 
-            const newResume = new Resume({
+            const resumeUrl = `/uploads/${req.file.filename}`;
+
+            // Find only the uploaded PDF record
+            let resume = await Resume.findOne({
                 userId: req.userId,
-                resumeUrl: resumeUrl
+                resumeUrl: { $ne: "" }
             });
 
-            await newResume.save();
+            if (resume) {
+                resume.resumeUrl = resumeUrl;
+                resume.resumeText = "";
+                await resume.save();
+            } else {
+                resume = new Resume({
+                    userId: req.userId,
+                    resumeUrl: resumeUrl,
+                    resumeText: ""
+                });
 
-            res.status(201).json({
+                await resume.save();
+            }
+
+            res.status(200).json({
                 message: "Resume uploaded successfully",
-                resume: newResume
+                resume: {
+                    resumeUrl: resume.resumeUrl,
+                    resumeText: resume.resumeText
+                }
             });
 
         } catch (error) {
+            console.error("Resume upload error:", error);
+
             res.status(500).json({
                 message: "Failed to upload resume",
                 error: error.message
@@ -527,118 +544,168 @@ app.post(
     }
 );
 
+
+
 app.get(
     "/api/resume/text",
     authMiddleware,
     async (req, res) => {
+        let parser;
+
         try {
+            // Find only the uploaded PDF record
             const resume = await Resume.findOne({
-                userId: req.userId
+                userId: req.userId,
+                resumeUrl: { $ne: "" }
             });
 
             if (!resume) {
                 return res.status(404).json({
-                    message: "Resume not found"
+                    message: "Uploaded resume not found"
                 });
             }
 
             const filePath = "." + resume.resumeUrl;
 
+            if (!fs.existsSync(filePath)) {
+                return res.status(404).json({
+                    message: "Resume PDF file not found"
+                });
+            }
+
             const dataBuffer = fs.readFileSync(filePath);
 
-            const parser = new PDFParse({
+            parser = new PDFParse({
                 data: dataBuffer
             });
 
             const result = await parser.getText();
 
-            await parser.destroy();
+            if (!result.text || !result.text.trim()) {
+                return res.status(400).json({
+                    message: "No readable text found in this PDF"
+                });
+            }
 
             // Save extracted text in MongoDB
             resume.resumeText = result.text;
             await resume.save();
 
-            res.json({
+            res.status(200).json({
                 message: "Resume text extracted and saved successfully",
                 text: result.text
             });
 
         } catch (error) {
+            console.error("Resume text extraction error:", error);
+
             res.status(500).json({
                 message: "Failed to extract resume text",
                 error: error.message
             });
+        } finally {
+            if (parser) {
+                await parser.destroy();
+            }
         }
     }
 );
+
+
 
 app.post(
     "/api/resume/extract-skills",
     authMiddleware,
     async (req, res) => {
         try {
+            // Find the uploaded PDF record containing extracted text
             const resume = await Resume.findOne({
-                userId: req.userId
-            });
+                userId: req.userId,
+                resumeUrl: { $ne: "" }
+            }).sort({ updatedAt: -1 });
+            
+            console.log("Resume found:", !!resume);
+            console.log("Resume text length:", resume?.resumeText?.length);
 
-            if (!resume || !resume.resumeText) {
+            if (!resume || !resume.resumeText.trim()) {
                 return res.status(404).json({
-                    message: "Resume text not found"
+                    message: "Uploaded resume text not found. Upload and extract your resume first."
                 });
             }
 
             const skillList = [
+                "JavaScript",
+                "TypeScript",
                 "Java",
                 "Python",
                 "C++",
-                "JavaScript",
-                "React",
+                "C#",
                 "React.js",
+                "React",
                 "Node.js",
                 "Express.js",
                 "MongoDB",
+                "MySQL",
                 "SQL",
                 "DBMS",
                 "OOP",
-                "Data Structures",
                 "Data Structures & Algorithms",
+                "Data Structures",
                 "HTML",
                 "CSS",
                 "Tailwind CSS",
-                "Git",
                 "GitHub",
+                "Git",
                 "AWS",
-                "Docker"
+                "Docker",
+                "Next.js",
+                "Flask",
+                "Django",
+                "Spring Boot",
+                "PostgreSQL",
+                "Firebase",
+                "REST API"
             ];
 
             const resumeText = resume.resumeText.toLowerCase();
 
-            const extractedSkills = skillList.filter(skill =>
-                resumeText.includes(skill.toLowerCase())
-            );
+            const extractedSkills = skillList.filter(skill => {
+                const escapedSkill = skill
+                    .toLowerCase()
+                    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-            for (const skill of extractedSkills) {
-                await ExtractedSkill.updateOne(
-                    {
+                const regex = new RegExp(
+                    `(?<![a-z0-9])${escapedSkill}(?![a-z0-9])`,
+                    "i"
+                );
+
+                return regex.test(resumeText);
+            });
+
+            // Remove previously extracted skills for this user
+            await ExtractedSkill.deleteMany({
+                userId: req.userId
+            });
+
+            // Save newly extracted skills
+            if (extractedSkills.length > 0) {
+                await ExtractedSkill.insertMany(
+                    extractedSkills.map(skill => ({
                         userId: req.userId,
                         skill: skill
-                    },
-                    {
-                        userId: req.userId,
-                        skill: skill
-                    },
-                    {
-                        upsert: true
-                    }
+                    }))
                 );
             }
 
-            res.json({
+            res.status(200).json({
                 message: "Skills extracted successfully",
+                totalSkills: extractedSkills.length,
                 skills: extractedSkills
             });
 
         } catch (error) {
+            console.error("Skill extraction error:", error);
+
             res.status(500).json({
                 message: "Failed to extract skills",
                 error: error.message
@@ -646,6 +713,7 @@ app.post(
         }
     }
 );
+
 
 app.post(
     "/api/target-role",
@@ -884,7 +952,7 @@ app.put("/api/resume/builder", authMiddleware, async (req, res) => {
         }
 
         const resume = await Resume.findOneAndUpdate(
-            { userId: req.userId },
+            { userId: req.userId, resumeUrl: "" },
             { $set: { resumeData } },
             {
                 new: true,
@@ -906,4 +974,94 @@ app.put("/api/resume/builder", authMiddleware, async (req, res) => {
         });
     }
 });
+// ATS Resume Scoring
+app.post("/api/ats/score", authMiddleware, async (req, res) => {
+    try {
+        const { source } = req.body;
 
+        // Validate resume source
+        if (!["pdf", "builder"].includes(source)) {
+            return res.status(400).json({
+                message: "Source must be either pdf or builder"
+            });
+        }
+
+        // Get the user's selected target role
+        const targetRole = await TargetRole.findOne({
+            userId: req.userId
+        });
+
+        if (!targetRole) {
+            return res.status(404).json({
+                message: "Please select a target role first"
+            });
+        }
+
+        let resumeData;
+
+        if (source === "pdf") {
+            // Get the latest uploaded PDF resume
+            const resume = await Resume.findOne({
+                userId: req.userId,
+                resumeUrl: { $ne: "" }
+            }).sort({ updatedAt: -1 });
+
+            if (!resume || !resume.resumeText.trim()) {
+                return res.status(404).json({
+                    message: "Please upload a PDF and extract its text first"
+                });
+            }
+
+            // Use extracted PDF text for skill matching
+            resumeData = parseResumeText(resume.resumeText);
+            console.log("PDF parsing results:", {
+                hasName: !!resumeData.personalInfo?.name,
+                hasEmail: !!resumeData.personalInfo?.email,
+                hasPhone: !!resumeData.personalInfo?.phone,
+                hasLinkedIn: !!resumeData.personalInfo?.linkedin,
+                hasGitHub: !!resumeData.personalInfo?.github,
+                summaryLength: resumeData.summary?.length || 0,
+                skillsLength: resumeData.skills?.length || 0,
+                educationLength: resumeData.education?.length || 0,
+                experienceLength: resumeData.experience?.length || 0,
+                projectsLength: resumeData.projects?.length || 0,
+                certificationsLength: resumeData.certifications?.length || 0
+            });
+
+        } else {
+            // Get Resume Builder data
+            const resume = await Resume.findOne({
+                userId: req.userId,
+                resumeData: { $exists: true }
+            }).sort({ updatedAt: -1 });
+
+            if (!resume || !resume.resumeData ||
+                Object.keys(resume.resumeData).length === 0) {
+                return res.status(404).json({
+                    message: "Please complete your Resume Builder first"
+                });
+            }
+
+            resumeData = resume.resumeData;
+        }
+
+        // Calculate ATS score
+        const result = calculateATSScore(
+            resumeData,
+            targetRole.role
+        );
+
+        return res.status(200).json({
+            message: "ATS score calculated successfully",
+            result
+        });
+
+    } catch (error) {
+        console.error("ATS scoring error:", error);
+
+        return res.status(500).json({
+            message: "Failed to calculate ATS score",
+            error: error.message
+        });
+    }
+});

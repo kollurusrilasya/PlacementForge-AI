@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { apiRequest } from '../services/api'
 import {
   PageHeader,
   LightCard,
@@ -139,7 +140,9 @@ export function RoadmapPage() {
   const [targetPackage, setTargetPackage] = useState('12 LPA')
   const [skillLevel, setSkillLevel] = useState('Intermediate')
   const [useResume, setUseResume] = useState('Yes')
-  const [modules, setModules] = useState(INITIAL_MODULES)
+  const [modules, setModules] = useState([])
+  const [skillGap, setSkillGap] = useState(null)
+  const [isGenerating, setIsGenerating] = useState(false)
   const [expandedModule, setExpandedModule] = useState(3) // Module 3 expanded by default
   const [activeTab, setActiveTab] = useState('curriculum') // 'curriculum' | 'history'
   const toast = useToast()
@@ -153,10 +156,74 @@ export function RoadmapPage() {
     ((completedCount * 100 + inProgressSum) / (modules.length * 100)) * 100
   )
 
-  const handleGenerate = (e) => {
-    e.preventDefault()
-    toast.show(`Roadmap generated for ${role} (${targetPackage})`, { type: 'forge' })
+  const handleGenerate = async (e) => {
+  e.preventDefault()
+
+  const token = localStorage.getItem('placement_forge_token')
+
+  if (!token) {
+    toast.show('Please log in first', { type: 'error' })
+    return
   }
+
+  try {
+    setIsGenerating(true)
+
+    const headers = {
+      Authorization: `Bearer ${token}`,
+    }
+
+    // 1. Save selected target role
+    await apiRequest('/api/target-role', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ role }),
+    })
+
+    // 2. Fetch skill gap
+    const skillGapResult = await apiRequest('/api/skill-gap', {
+      headers,
+    })
+
+    setSkillGap(skillGapResult.skillGap)
+
+    // 3. Generate and fetch roadmap
+    const roadmapResult = await apiRequest('/api/roadmap', {
+      headers,
+    })
+
+    const roadmapData = roadmapResult.roadmap
+    const roadmapSteps = Array.isArray(roadmapData)
+      ? roadmapData
+      : roadmapData?.roadmap || []
+
+    // Convert backend steps into the format used by this page
+    const generatedModules = roadmapSteps.map((step, index) => ({
+      id: index + 1,
+      title: step,
+      estimatedTime: 'Recommended learning step',
+      status: 'pending',
+      progress: 0,
+      topics: [],
+      resources: [],
+      practiceQuestions: [],
+    }))
+
+    setModules(generatedModules)
+    setExpandedModule(1)
+    setActiveTab('curriculum')
+
+    toast.show('Your career roadmap was generated!', {
+      type: 'success',
+    })
+  } catch (error) {
+    toast.show(error.message || 'Could not generate roadmap', {
+      type: 'error',
+    })
+  } finally {
+    setIsGenerating(false)
+  }
+}
 
   const toggleModuleComplete = (id) => {
     setModules((prev) =>

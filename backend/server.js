@@ -1,4 +1,4 @@
-require("dotenv").config();
+require("dotenv").config({ path: __dirname + "/.env" });
 const fs = require("fs");
 const { PDFParse } = require("pdf-parse");
 const mongoose = require("mongoose");
@@ -15,6 +15,7 @@ const ExtractedSkill = require("./models/ExtractedSkill");
 const TargetRole = require("./models/TargetRole");
 const SkillGap = require("./models/SkillGap");
 const Roadmap = require("./models/Roadmap");
+const ATSScore = require("./models/ATSScore");
 const authMiddleware = require("./middleware/authMiddleware");
 const cors = require("cors");
 const path = require("path");
@@ -186,8 +187,8 @@ app.post("/api/auth/login", async (req, res) => {
 
 
 // ==================== PROFILE ====================
-
-app.get("/api/profile", authMiddleware, async (req, res) => {
+app.get("/api/profile"
+, authMiddleware, async (req, res) => {
     try {
         const user = await User.findById(req.userId);
 
@@ -553,10 +554,52 @@ app.get(
             const result = await parser.getText();
 
             await parser.destroy();
-
-            // Save extracted text in MongoDB
+            // Save extracted resume text
             resume.resumeText = result.text;
             await resume.save();
+            // Extract skills from resume text
+            const knownSkills = [
+                "Java",
+                "Python",
+                "JavaScript",
+                "HTML",
+                "CSS",
+                "React.js",
+                "Node.js",
+                "Express.js",
+                "MongoDB",
+                "SQL",
+                "DBMS",
+                "Spring Boot",
+                "REST API",
+                "Data Structures & Algorithms",
+                "OOP",
+                "Git",
+                "Excel",
+                "Statistics",
+                "Power BI",
+                "Machine Learning",
+                "TensorFlow",
+                "Linear Algebra",
+                "Data Visualization"
+           ];
+           const resumeText = result.text.toLowerCase();
+           const extractedSkills = knownSkills.filter(skill =>
+    resumeText.includes(skill.toLowerCase())
+           );
+           // Replace previously extracted skills for this user
+           await ExtractedSkill.deleteMany({
+            userId: req.userId
+        });
+        // Save newly extracted skills
+        if (extractedSkills.length > 0) {
+            await ExtractedSkill.insertMany(
+            extractedSkills.map(skill => ({
+                 userId: req.userId,
+                 skill
+                }))
+             );
+            }
 
             res.json({
                 message: "Resume text extracted and saved successfully",
@@ -726,11 +769,48 @@ app.get(
                     "SQL",
                     "REST API",
                     "Git"
-                ]
+                ],
+
+                "Software Engineer": [
+                    "JavaScript",
+                    "Python",
+                    "Data Structures & Algorithms",
+                    "OOP",
+                    "SQL",
+                     "Git"
+                ],
+
+                "Full Stack Developer": [
+                    "HTML",
+                    "CSS",
+                    "JavaScript",
+                    "React.js",
+                    "Node.js",
+                    "Express.js",
+                    "MongoDB",
+                    "SQL"
+                ],
+
+                "Data Analyst": [
+                    "Python",
+                    "SQL",
+                    "Excel",
+                   "Statistics",
+                   "Power BI",
+                   "Data Visualization"
+               ],
+
+                "ML Engineer": [
+                    "Python",
+                    "Machine Learning",
+                    "Statistics",
+                    "Linear Algebra",
+                    "TensorFlow",
+                    "Data Processing"
+              ]
             };
 
-            const requiredSkills =
-                roleRequirements[targetRole.role];
+            const requiredSkills = roleRequirements[targetRole.role];
 
             if (!requiredSkills) {
                 return res.status(400).json({
@@ -835,6 +915,265 @@ app.get(
         }
     }
 );
+// ==================== ATS RESUME SCORING ====================
+
+app.post("/api/resume/score", authMiddleware, async (req, res) => {
+  try {
+    // 1. Get the user's uploaded resume
+    const resume = await Resume.findOne({ userId: req.userId });
+
+    if (!resume) {
+      return res.status(404).json({
+        message: "Please upload your resume before running ATS analysis."
+      });
+    }
+
+    if (!resume.resumeText || !resume.resumeText.trim()) {
+      return res.status(400).json({
+        message: "Resume text is not available. Please extract your resume text first."
+      });
+    }
+
+    // 2. Get the user's selected target role
+    const targetRole = await TargetRole.findOne({ userId: req.userId });
+
+    if (!targetRole) {
+      return res.status(400).json({
+        message: "Please select a target role before running ATS analysis."
+      });
+    }
+
+    // 3. Requirements for each supported role
+    const roleRequirements = {
+      "Java Developer": [
+        "Java", "Data Structures & Algorithms", "OOP",
+        "SQL", "DBMS", "Spring Boot", "REST API"
+      ],
+      "Frontend Developer": [
+        "HTML", "CSS", "JavaScript", "React.js", "Git"
+      ],
+      "Backend Developer": [
+        "Node.js", "Express.js", "MongoDB", "SQL", "REST API", "Git"
+      ],
+      "Software Engineer": [
+        "JavaScript", "Python", "Data Structures & Algorithms",
+        "OOP", "SQL", "Git"
+      ],
+      "Full Stack Developer": [
+        "HTML", "CSS", "JavaScript", "React.js",
+        "Node.js", "Express.js", "MongoDB", "SQL"
+      ],
+      "Data Analyst": [
+        "Python", "SQL", "Excel", "Statistics",
+        "Power BI", "Data Visualization"
+      ],
+      "ML Engineer": [
+        "Python", "Machine Learning", "Statistics",
+        "Linear Algebra", "TensorFlow", "Data Processing"
+      ]
+    };
+
+    const requiredSkills = roleRequirements[targetRole.role];
+
+    if (!requiredSkills) {
+      return res.status(400).json({
+        message: "ATS requirements are not available for this target role."
+      });
+    }
+
+    // 4. Analyze resume text
+    const resumeText = resume.resumeText.toLowerCase();
+
+    const matchedKeywords = requiredSkills.filter(skill =>
+      resumeText.includes(skill.toLowerCase())
+    );
+
+    const missingKeywords = requiredSkills.filter(skill =>
+      !matchedKeywords.some(
+        matched => matched.toLowerCase() === skill.toLowerCase()
+      )
+    );
+
+    // 5. Calculate category scores
+    const keywordScore = requiredSkills.length
+      ? Math.round((matchedKeywords.length / requiredSkills.length) * 30)
+      : 0;
+
+    const skillScore = requiredSkills.length
+      ? Math.round((matchedKeywords.length / requiredSkills.length) * 25)
+      : 0;
+
+    const hasExperience =
+      /\b(experience|internship|intern|employment|worked|developer)\b/i.test(resumeText);
+
+    const hasProjects =
+      /\b(projects|project|developed|built|implemented)\b/i.test(resumeText);
+
+    const hasEducation =
+      /\b(education|bachelor|b\.tech|b\.e\.|degree|university|college|master)\b/i.test(resumeText);
+
+    const hasContact =
+      /[\w.+-]+@[\w.-]+\.[a-z]{2,}/i.test(resumeText);
+
+    const hasSections =
+      /\b(summary|objective|skills|education|experience|projects)\b/i.test(resumeText);
+
+    const categoryScores = [
+      {
+        category: "Keyword Match",
+        score: keywordScore,
+        maxScore: 30
+      },
+      {
+        category: "Skills",
+        score: skillScore,
+        maxScore: 25
+      },
+      {
+        category: "Work Experience",
+        score: hasExperience ? 15 : 0,
+        maxScore: 15
+      },
+      {
+        category: "Projects",
+        score: hasProjects ? 15 : 0,
+        maxScore: 15
+      },
+      {
+        category: "Education",
+        score: hasEducation ? 10 : 0,
+        maxScore: 10
+      },
+      {
+        category: "Formatting",
+        score: (hasContact ? 3 : 0) + (hasSections ? 2 : 0),
+        maxScore: 5
+      }
+    ];
+
+    const score = categoryScores.reduce(
+      (total, category) => total + category.score,
+      0
+    );
+
+    // 6. Generate strengths
+    const strengths = [];
+
+    if (matchedKeywords.length > 0) {
+      strengths.push(
+        `Your resume contains ${matchedKeywords.length} required skills for ${targetRole.role}.`
+      );
+    }
+
+    if (hasExperience) strengths.push("Experience-related content was detected.");
+    if (hasProjects) strengths.push("Project-related content was detected.");
+    if (hasEducation) strengths.push("Education-related content was detected.");
+    if (hasContact) strengths.push("An email address was detected.");
+
+    // 7. Generate weaknesses
+    const weaknesses = [];
+
+    if (missingKeywords.length > 0) {
+      weaknesses.push(
+        `Your resume is missing ${missingKeywords.length} role-related keywords.`
+      );
+    }
+
+    if (!hasExperience) weaknesses.push("Experience-related content was not detected.");
+    if (!hasProjects) weaknesses.push("Project-related content was not detected.");
+    if (!hasEducation) weaknesses.push("Education-related content was not detected.");
+    if (!hasContact) weaknesses.push("A recognizable email address was not detected.");
+
+    // 8. Generate suggestions
+    const suggestions = [];
+
+    if (missingKeywords.length > 0) {
+      suggestions.push(
+        `If you genuinely have these skills, include them in your resume: ${missingKeywords.join(", ")}.`
+      );
+    }
+
+    if (!hasProjects) {
+      suggestions.push("Add a Projects section describing relevant work you have completed.");
+    }
+
+    if (!hasExperience) {
+      suggestions.push("Add relevant internships, work experience, or practical experience if applicable.");
+    }
+
+    if (!hasEducation) {
+      suggestions.push("Add a clearly labelled Education section.");
+    }
+
+    if (!hasContact) {
+      suggestions.push("Add a clearly visible professional email address.");
+    }
+
+    if (suggestions.length === 0) {
+      suggestions.push("Keep your resume updated with relevant, accurate experience and skills.");
+    }
+
+    // 9. Save the score in MongoDB
+    const savedScore = await ATSScore.create({
+      userId: req.userId,
+      targetRole: targetRole.role,
+      score,
+      categoryScores,
+      matchedKeywords,
+      missingKeywords,
+      strengths,
+      weaknesses,
+      suggestions
+    });
+
+    // 10. Return results to frontend
+    res.status(200).json({
+      message: "ATS analysis completed successfully",
+      scoreData: {
+        id: savedScore._id,
+        score: savedScore.score,
+        targetRole: savedScore.targetRole,
+        categoryScores: savedScore.categoryScores,
+        matchedKeywords: savedScore.matchedKeywords,
+        missingKeywords: savedScore.missingKeywords,
+        strengths: savedScore.strengths,
+        weaknesses: savedScore.weaknesses,
+        suggestions: savedScore.suggestions,
+        createdAt: savedScore.createdAt
+      }
+    });
+
+  } catch (error) {
+    console.error("ATS scoring error:", error);
+
+    res.status(500).json({
+      message: "Failed to analyze resume",
+      error: error.message
+    });
+  }
+});
+
+
+// ==================== ATS SCORE HISTORY ====================
+
+app.get("/api/resume/score-history", authMiddleware, async (req, res) => {
+  try {
+    const history = await ATSScore.find({ userId: req.userId })
+      .sort({ createdAt: 1 })
+      .limit(20)
+      .select("score targetRole createdAt");
+
+    res.json({
+      message: "ATS score history fetched successfully",
+      history
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: "Failed to fetch ATS score history",
+      error: error.message
+    });
+  }
+});
 // ==================== MONGODB CONNECTION ====================
 
 mongoose.connect(process.env.MONGO_URI)

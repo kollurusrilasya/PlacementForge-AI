@@ -1,3 +1,4 @@
+
 const mongoose = require("mongoose");
 const bcrypt = require("bcrypt");
 
@@ -16,6 +17,21 @@ const userSchema = new mongoose.Schema({
     password: {
         type: String,
         required: true
+    },
+
+    college: {
+        type: String,
+        default: ""
+    },
+
+    branch: {
+        type: String,
+        default: ""
+    },
+
+    targetPackage: {
+        type: String,
+        default: ""
     }
 });
 

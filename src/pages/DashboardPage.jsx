@@ -1,5 +1,6 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { apiRequest } from '../services/api'
 import {
   PageHeader,
   SectionHeader,
@@ -13,18 +14,14 @@ import { useUser } from '../context/UserContext'
 import {
   Flame,
   Video,
-  FileCheck2,
   FileText,
+  FileCheck2,
   Sparkles,
   ArrowRight,
   Code2,
   Map,
   Clock,
-  CheckCircle2,
-  TrendingUp,
   Target,
-  Database,
-  Users,
 } from 'lucide-react'
 import {
   Radar,
@@ -38,93 +35,93 @@ import {
 export function DashboardPage() {
   const { user } = useUser()
   const navigate = useNavigate()
+  const [dashboardData, setDashboardData] = useState({
+    atsScore: null,
+    skillGap: null,
+    roadmap: null,
+    targetRole: null,
+  })
+  
+  const [loading, setLoading] = useState(true)
+  const [dashboardError, setDashboardError] = useState('')
+  
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      try {
+        setLoading(true)
+        setDashboardError('')
+  
+        const results = await Promise.allSettled([
+          apiRequest('/api/ats/score', {
+            method: 'POST',
+            body: JSON.stringify({ source: 'pdf' }),
+          }),
+          apiRequest('/api/skill-gap'),
+          apiRequest('/api/roadmap'),
+        ])
+  
+        setDashboardData({
+          atsScore: results[0].status === 'fulfilled'
+            ? results[0].value.result
+            : null,
+          skillGap: results[1].status === 'fulfilled'
+            ? results[1].value.skillGap
+            : null,
+          roadmap: results[2].status === 'fulfilled'
+            ? results[2].value.roadmap
+            : null,
+          targetRole: results[1].status === 'fulfilled'
+            ? results[1].value.skillGap?.targetRole
+            : null,
+        })
+      } catch (error) {
+        setDashboardError(error.message)
+      } finally {
+        setLoading(false)
+      }
+    }
+  
+    fetchDashboardData()
+  }, [])
 
-  const userName = user?.name ? user.name.split(' ')[0] : 'Sampath'
+  const userName = user?.name ? user.name.split(' ')[0] : 'there'
+  const requiredSkills = dashboardData.skillGap?.requiredSkills || []
+  const missingSkills = dashboardData.skillGap?.missingSkills || []
+  const matchedSkillCount = Math.max(0, requiredSkills.length - missingSkills.length)
+  const skillProgress = requiredSkills.length
+    ? Math.round((matchedSkillCount / requiredSkills.length) * 100)
+    : 0
+  const roadmapSteps = dashboardData.roadmap?.roadmap || []
 
+  const categoryScores = dashboardData.atsScore?.categoryScores || {}
   const READINESS_DATA = [
-    { subject: 'Resume', score: 81, fullMark: 100 },
-    { subject: 'DSA', score: 78, fullMark: 100 },
-    { subject: 'Core CS', score: 70, fullMark: 100 },
-    { subject: 'Communication', score: 84, fullMark: 100 },
-    { subject: 'Projects', score: 88, fullMark: 100 },
-    { subject: 'Interview', score: 74, fullMark: 100 },
-    { subject: 'Problem Solving', score: 76, fullMark: 100 },
+    { subject: 'Skills', score: categoryScores.skills ?? 0, fullMark: 40 },
+    { subject: 'Completeness', score: categoryScores.completeness ?? 0, fullMark: 20 },
+    { subject: 'Projects & Experience', score: categoryScores.projectsAndExperience ?? 0, fullMark: 15 },
+    { subject: 'Education', score: categoryScores.education ?? 0, fullMark: 10 },
+    { subject: 'Certifications', score: categoryScores.certifications ?? 0, fullMark: 10 },
+    { subject: 'Readability', score: categoryScores.readability ?? 0, fullMark: 5 },
   ]
 
-  const NEXT_STEPS = [
-    {
-      title: 'Improve Resume',
-      desc: 'Add quantifiable metrics to your 2 personal projects to increase ATS score to 88+.',
-      tag: 'High Impact',
-      icon: FileCheck2,
-      action: () => navigate('/resume/scorer'),
-      actionText: 'Review Suggestions',
-    },
-    {
-      title: 'Practice Technical Interview',
-      desc: 'Simulate a 25-minute Trees & Graphs algorithmic round with AI video avatar.',
-      tag: 'Simulation',
-      icon: Video,
-      action: () => navigate('/interview/setup'),
-      actionText: 'Start Interview',
-    },
-    {
-      title: 'Complete DSA Arrays',
-      desc: '3 remaining sliding window problems in your active Week 4 curriculum.',
-      tag: 'Roadmap',
-      icon: Code2,
-      action: () => navigate('/roadmap'),
-      actionText: 'Open Problems',
-    },
-    {
-      title: 'Strengthen SQL',
-      desc: 'Practice indexing and multi-table joins expected in SDE-1 interviews.',
-      tag: 'Core CS',
-      icon: Database,
-      action: () => navigate('/roadmap'),
-      actionText: 'Study Topic',
-    },
-    {
-      title: 'Practice HR Questions',
-      desc: 'Rehearse behavioral STAR answers for conflict resolution and leadership.',
-      tag: 'Behavioral',
-      icon: Users,
-      action: () => navigate('/interview/setup'),
-      actionText: 'Practice HR',
-    },
-  ]
+  const NEXT_STEPS = (dashboardData.atsScore?.suggestions || []).map((suggestion, index) => ({
+    title: index < missingSkills.length ? `Learn ${missingSkills[index]}` : 'Improve Resume',
+    desc: suggestion,
+    tag: index < missingSkills.length ? 'Skill Gap' : 'ATS Feedback',
+    icon: index < missingSkills.length ? Code2 : FileCheck2,
+    action: () => navigate(index < missingSkills.length ? '/roadmap' : '/resume/scorer'),
+    actionText: index < missingSkills.length ? 'Open Roadmap' : 'Review Resume',
+  }))
 
-  const RECENT_ACTIVITIES = [
-    {
-      title: 'Technical interview completed',
-      time: 'Yesterday at 4:30 PM',
-      score: '82% score',
-      desc: 'Frontend Engineer round • Strong component hierarchy',
-      icon: Video,
-      accent: true,
-    },
-    {
-      title: 'Resume updated & saved',
-      time: 'Yesterday at 11:15 AM',
-      score: '+13 points',
-      desc: 'Integrated quantifiable metrics for NexTech internship',
-      icon: FileText,
-    },
-    {
-      title: 'Roadmap module completed',
-      time: '3 days ago',
-      score: '100% finished',
-      desc: 'Completed Arrays & Fast-Slow Pointers',
-      icon: CheckCircle2,
-    },
-    {
-      title: 'Resume score improved',
-      time: '4 days ago',
-      score: '81/100',
-      desc: 'ATS scan verified compatibility with SDE-1 specifications',
-      icon: TrendingUp,
-    },
-  ]
+  if (NEXT_STEPS.length === 0) {
+    NEXT_STEPS.push({
+      title: 'Build your learning roadmap',
+      desc: 'Select a target role and analyze your resume to receive personalized recommendations.',
+      tag: 'Get Started',
+      icon: Map,
+      action: () => navigate('/roadmap'),
+      actionText: 'Open Roadmap',
+    })
+  }
 
   return (
     <div className="space-y-8">
@@ -132,7 +129,11 @@ export function DashboardPage() {
       <PageHeader
         title={`Good morning, ${userName} 👋`}
         subtitle="Here's your placement preparation overview. You are on track for upcoming campus hiring drives."
-        badge={<Badge variant="accent" dot>Readiness: 72%</Badge>}
+        badge={
+          <Badge variant="accent" dot>
+            Readiness: {loading ? '--' : `${skillProgress}%`}
+          </Badge>
+        }
         action={
           <PrimaryButton
             icon={ArrowRight}
@@ -144,98 +145,28 @@ export function DashboardPage() {
         }
       />
 
-      {/* ── CAPSTONE EVALUATION TOUR RIBBON ── */}
-      <div className="p-4 rounded-[14px] bg-[#FFF5EE] border border-[#FCD6BF] space-y-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-[#D95B14] animate-pulse" />
-            <span className="text-xs font-bold text-[#D95B14] uppercase tracking-wider">
-              Capstone Demo Mode Active
-            </span>
-            <span className="text-xs text-[#87360A] hidden sm:inline">•</span>
-            <span className="text-xs text-[#87360A] hidden sm:inline">
-              Seeded student profile (Sampath Srinivas • 12 LPA SDE Goal)
-            </span>
-          </div>
-          <span className="text-[11px] font-mono font-semibold text-[#D95B14]">
-            Offline Ready • Zero API Keys
-          </span>
-        </div>
-
-        <p className="text-xs text-[#6B6B6B] leading-relaxed">
-          <strong>Recommended Evaluation Journey:</strong> Click through the stages below to test the complete placement preparation pipeline.
-        </p>
-
-        <div className="flex flex-wrap items-center gap-2 pt-1 text-xs font-medium">
-          <button
-            onClick={() => navigate('/')}
-            className="px-2.5 py-1 rounded-[6px] bg-white border border-[#E8E8E5] text-[#111111] hover:border-[#D95B14] transition-colors"
-          >
-            1. Landing Page
-          </button>
-          <span className="text-[#A0A0A0]">→</span>
-          <button
-            onClick={() => navigate('/dashboard')}
-            className="px-2.5 py-1 rounded-[6px] bg-[#111111] text-white"
-          >
-            2. Command Center
-          </button>
-          <span className="text-[#A0A0A0]">→</span>
-          <button
-            onClick={() => navigate('/resume')}
-            className="px-2.5 py-1 rounded-[6px] bg-white border border-[#E8E8E5] text-[#111111] hover:border-[#D95B14] transition-colors"
-          >
-            3. Resume Builder
-          </button>
-          <span className="text-[#A0A0A0]">→</span>
-          <button
-            onClick={() => navigate('/resume/scorer')}
-            className="px-2.5 py-1 rounded-[6px] bg-white border border-[#E8E8E5] text-[#111111] hover:border-[#D95B14] transition-colors"
-          >
-            4. Resume Scorer
-          </button>
-          <span className="text-[#A0A0A0]">→</span>
-          <button
-            onClick={() => navigate('/interview/setup')}
-            className="px-2.5 py-1 rounded-[6px] bg-white border border-[#E8E8E5] text-[#111111] hover:border-[#D95B14] transition-colors"
-          >
-            5. AI Interview Room
-          </button>
-          <span className="text-[#A0A0A0]">→</span>
-          <button
-            onClick={() => navigate('/interview/report')}
-            className="px-2.5 py-1 rounded-[6px] bg-white border border-[#E8E8E5] text-[#111111] hover:border-[#D95B14] transition-colors"
-          >
-            6. Diagnostic Report
-          </button>
-          <span className="text-[#A0A0A0]">→</span>
-          <button
-            onClick={() => navigate('/roadmap')}
-            className="px-2.5 py-1 rounded-[6px] bg-white border border-[#E8E8E5] text-[#111111] hover:border-[#D95B14] transition-colors"
-          >
-            7. Career Roadmap
-          </button>
-        </div>
-      </div>
-
       {/* ── STAT CARDS ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Placement Readiness */}
         <LightCard className="p-5 space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wider text-[#6B6B6B]">
-              Placement Readiness
+              Required Skills Matched
             </span>
             <div className="w-8 h-8 rounded-lg bg-[#FFF5EE] text-[#D95B14] flex items-center justify-center">
               <Flame className="w-4 h-4" />
             </div>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-bold tracking-tight text-[#111111]">72%</span>
-            <span className="text-xs font-semibold text-emerald-600">+12% this month</span>
+            <span className="text-3xl font-bold tracking-tight text-[#111111]">
+              {requiredSkills.length ? `${matchedSkillCount}/${requiredSkills.length}` : '--'}
+            </span>
+            <span className="text-xs font-semibold text-emerald-600">
+              {requiredSkills.length ? `${skillProgress}% matched` : 'No data yet'}
+            </span>
           </div>
-          <ProgressIndicator value={72} variant="accent" showPercentage={false} size="sm" />
-          <p className="text-[11px] text-[#6B6B6B]">Target: 85% for Tier-1 companies</p>
+          <ProgressIndicator value={skillProgress} variant="accent" showPercentage={false} size="sm" />
+          <p className="text-[11px] text-[#6B6B6B]">Based on required skills for your target role</p>
         </LightCard>
 
         {/* Resume Score */}
@@ -249,11 +180,31 @@ export function DashboardPage() {
             </div>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-bold tracking-tight text-[#111111]">81<span className="text-lg font-normal text-[#8E8E8E]">/100</span></span>
-            <Badge variant="success" size="sm">Strong ATS</Badge>
+            <span className="text-3xl font-bold tracking-tight text-[#111111]">
+              {loading
+                ? '...'
+                : dashboardData.atsScore
+                  ? dashboardData.atsScore.totalScore
+                  : '--'}
+              <span className="text-lg font-normal text-[#8E8E8E]">/100</span>
+            </span>
+            {dashboardData.atsScore && (
+              <Badge variant="success" size="sm">ATS Score</Badge>
+            )}
           </div>
-          <ProgressIndicator value={81} variant="dark" showPercentage={false} size="sm" />
-          <p className="text-[11px] text-[#6B6B6B]">Top 15th percentile of applicants</p>
+          <ProgressIndicator
+            value={dashboardData.atsScore?.totalScore || 0}
+            variant="dark"
+            showPercentage={false}
+            size="sm"
+          />
+          <p className="text-[11px] text-[#6B6B6B]">
+            {dashboardData.atsScore
+              ? `Target role: ${dashboardData.atsScore.targetRole}`
+              : loading
+                ? 'Calculating ATS score...'
+                : 'Upload a resume to calculate your score'}
+          </p>
         </LightCard>
 
         {/* Interview Score */}
@@ -267,29 +218,55 @@ export function DashboardPage() {
             </div>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-bold tracking-tight text-[#111111]">74<span className="text-lg font-normal text-[#8E8E8E]">/100</span></span>
-            <span className="text-xs font-semibold text-[#D95B14]">6 Sessions</span>
+            <span className="text-3xl font-bold tracking-tight text-[#111111]">--<span className="text-lg font-normal text-[#8E8E8E]">/100</span></span>
+            <span className="text-xs font-semibold text-[#D95B14]">Not available</span>
           </div>
-          <ProgressIndicator value={74} variant="dark" showPercentage={false} size="sm" />
-          <p className="text-[11px] text-[#6B6B6B]">Average across Tech, DSA & HR</p>
+          <ProgressIndicator value={0} variant="dark" showPercentage={false} size="sm" />
+          <p className="text-[11px] text-[#6B6B6B]">Interview results will appear after interview integration</p>
         </LightCard>
 
-        {/* Skills Completed */}
+        {/* Skills to Improve */}
         <DarkCard className="p-5 space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wider text-[#A0A0A0]">
-              Skills Completed
+              Skills to Improve
             </span>
             <div className="w-8 h-8 rounded-lg bg-white/10 text-white flex items-center justify-center">
               <Sparkles className="w-4 h-4 text-[#D95B14]" />
             </div>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-bold tracking-tight text-white">18<span className="text-lg font-normal text-[#8E8E8E]">/25</span></span>
-            <Badge variant="accent" size="sm">72% Done</Badge>
+            <span className="text-3xl font-bold tracking-tight text-white">
+              {loading ? '...' : missingSkills.length}
+            </span>
+            <span className="text-xs font-semibold text-[#F6B18A]">
+              {missingSkills.length === 1 ? 'skill remaining' : 'skills remaining'}
+            </span>
           </div>
-          <ProgressIndicator value={72} variant="accent" showPercentage={false} size="sm" />
-          <p className="text-[11px] text-[#8E8E8E]">7 competencies remaining</p>
+          <div className="flex flex-wrap gap-2 min-h-[28px]">
+            {loading ? (
+              <span className="text-[11px] text-[#A0A0A0]">Loading skill analysis...</span>
+            ) : missingSkills.length > 0 ? (
+              missingSkills.map((skill) => (
+                <span
+                  key={skill}
+                  className="px-2 py-1 rounded-full bg-white/10 text-[11px] text-white"
+                >
+                  {skill}
+                </span>
+              ))
+            ) : (
+              <span className="text-[11px] text-[#A0A0A0]">
+                {requiredSkills.length ? 'All required skills matched' : 'Select a target role to analyze skills'}
+              </span>
+            )}
+          </div>
+          <button
+            onClick={() => navigate('/roadmap')}
+            className="text-[11px] font-semibold text-[#F6B18A] hover:text-white transition-colors"
+          >
+            View learning roadmap →
+          </button>
         </DarkCard>
       </div>
 
@@ -305,9 +282,9 @@ export function DashboardPage() {
           <LightCard className="lg:col-span-7 p-6 flex flex-col justify-between">
             <div className="flex items-center justify-between border-b border-[#E8E8E5] pb-3 mb-2">
               <span className="text-xs font-semibold text-[#111111]">
-                Competency Radar (7-Factor Diagnostic)
+                ATS Score Breakdown
               </span>
-              <span className="text-xs text-[#6B6B6B] font-mono">Calibrated to 12 LPA SDE</span>
+              <span className="text-xs text-[#6B6B6B] font-mono">Based on your resume</span>
             </div>
 
             <div className="h-72 w-full flex items-center justify-center">
@@ -335,8 +312,8 @@ export function DashboardPage() {
             </div>
 
             <div className="pt-3 border-t border-[#E8E8E5] flex items-center justify-between text-xs text-[#6B6B6B]">
-              <span>Strongest: <strong className="text-[#111111]">Projects (88%)</strong></span>
-              <span>Needs Focus: <strong className="text-[#D95B14]">Core CS (70%)</strong></span>
+              <span>ATS total: <strong className="text-[#111111]">{dashboardData.atsScore ? `${dashboardData.atsScore.totalScore}/100` : 'Not available'}</strong></span>
+              <span>Target: <strong className="text-[#D95B14]">{dashboardData.targetRole || 'Not selected'}</strong></span>
             </div>
           </LightCard>
 
@@ -348,23 +325,27 @@ export function DashboardPage() {
                   <Badge variant="accent" size="sm" dot>Current Goal</Badge>
                   <Target className="w-4 h-4 text-[#D95B14]" />
                 </div>
-                <h3 className="text-2xl font-bold text-white mt-3">Software Engineer</h3>
-                <p className="text-xs text-[#A0A0A0] mt-1">Tier-1 Product & FinTech Placement</p>
+                <h3 className="text-2xl font-bold text-white mt-3">
+                  {dashboardData.targetRole || 'Choose a target role'}
+                </h3>
+                <p className="text-xs text-[#A0A0A0] mt-1">Your selected placement target</p>
 
                 <div className="grid grid-cols-2 gap-3 mt-6 pt-4 border-t border-[#2A2A28]">
                   <div>
                     <span className="text-[11px] text-[#8E8E8E] block">Target Package</span>
-                    <span className="text-xl font-bold text-white">12 LPA</span>
+                    <span className="text-xl font-bold text-white">Not set</span>
                   </div>
                   <div>
                     <span className="text-[11px] text-[#8E8E8E] block">Prep Progress</span>
-                    <span className="text-xl font-bold text-[#D95B14]">72%</span>
+                    <span className="text-xl font-bold text-[#D95B14]">
+                      {requiredSkills.length ? `${skillProgress}%` : '--'}
+                    </span>
                   </div>
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-[#2A2A28] text-xs text-[#A0A0A0] flex items-center gap-2">
                   <Clock className="w-4 h-4 text-[#8E8E8E]" />
-                  <span>Expected Remaining: <strong>5 weeks of focused prep</strong></span>
+                  <span>Learning steps: <strong>{roadmapSteps.length || 0} recommended</strong></span>
                 </div>
               </div>
 
@@ -378,6 +359,79 @@ export function DashboardPage() {
               </div>
             </DarkCard>
           </div>
+        </div>
+      </section>
+
+      {/* ── SECTION: SKILL GAP & ROADMAP ── */}
+      <section className="space-y-4">
+        <SectionHeader
+          title="Your Skill Gap & Learning Roadmap"
+          description="Skills identified from your resume and learning steps for your selected target role."
+        />
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <LightCard className="p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-[#111111]">Skills to Improve</h3>
+              <Badge variant="neutral" size="sm">
+                {missingSkills.length} missing
+              </Badge>
+            </div>
+            {loading ? (
+              <p className="text-xs text-[#6B6B6B]">Loading skill gap...</p>
+            ) : missingSkills.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {missingSkills.map((skill) => (
+                  <Badge key={skill} variant="neutral">{skill}</Badge>
+                ))}
+              </div>
+            ) : dashboardData.skillGap ? (
+              <p className="text-xs text-[#6B6B6B]">No missing mandatory skills found for this role.</p>
+            ) : (
+              <p className="text-xs text-[#6B6B6B]">Skill gap data is not available yet. Select a target role and analyze your resume.</p>
+            )}
+            {dashboardData.skillGap?.userSkills?.length > 0 && (
+              <div className="pt-3 border-t border-[#E8E8E5]">
+                <p className="text-xs text-[#6B6B6B] mb-2">Skills detected in your resume</p>
+                <div className="flex flex-wrap gap-2">
+                  {dashboardData.skillGap.userSkills.map((skill) => (
+                    <Badge key={skill} variant="success">{skill}</Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+          </LightCard>
+
+          <LightCard className="p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-[#111111]">Learning Roadmap</h3>
+              <Badge variant="neutral" size="sm">
+                {roadmapSteps.length} steps
+              </Badge>
+            </div>
+            {loading ? (
+              <p className="text-xs text-[#6B6B6B]">Loading roadmap...</p>
+            ) : roadmapSteps.length > 0 ? (
+              <ol className="space-y-3">
+                {roadmapSteps.map((step, index) => (
+                  <li key={`${step}-${index}`} className="flex items-start gap-3">
+                    <span className="w-6 h-6 rounded-full bg-[#FFF5EE] text-[#D95B14] text-xs font-semibold flex items-center justify-center shrink-0">
+                      {index + 1}
+                    </span>
+                    <span className="text-xs text-[#4A4A4A] leading-relaxed">{step}</span>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="text-xs text-[#6B6B6B]">Your roadmap will appear after skill gap analysis.</p>
+            )}
+            <button
+              onClick={() => navigate('/roadmap')}
+              className="text-xs font-semibold text-[#D95B14] hover:text-[#BF4D0C] inline-flex items-center gap-1.5"
+            >
+              Open full roadmap <span>→</span>
+            </button>
+          </LightCard>
         </div>
       </section>
 
@@ -432,29 +486,18 @@ export function DashboardPage() {
             description="Your latest interview simulations, scans, and roadmap milestones."
           />
 
-          <LightCard className="p-0 overflow-hidden divide-y divide-[#E8E8E5]">
-            {RECENT_ACTIVITIES.map((act, idx) => {
-              const Icon = act.icon
-              return (
-                <div key={idx} className="p-4 sm:p-5 flex items-start justify-between gap-4 hover:bg-[#FAFAF9] transition-colors">
-                  <div className="flex items-start gap-3">
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                      act.accent ? 'bg-[#FFF5EE] text-[#D95B14]' : 'bg-[#F4F4F1] text-[#111111]'
-                    }`}>
-                      <Icon className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h4 className="text-xs sm:text-sm font-semibold text-[#111111]">{act.title}</h4>
-                      <p className="text-xs text-[#6B6B6B] mt-0.5">{act.desc}</p>
-                      <span className="text-[11px] text-[#8E8E8A] mt-1 block">{act.time}</span>
-                    </div>
-                  </div>
-                  <Badge variant={act.accent ? 'accent' : 'neutral'} size="sm">
-                    {act.score}
-                  </Badge>
-                </div>
-              )
-            })}
+          <LightCard className="p-5">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-lg bg-[#F4F4F1] text-[#111111] flex items-center justify-center shrink-0">
+                <Clock className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="text-sm font-semibold text-[#111111]">Activity tracking not connected yet</h4>
+                <p className="text-xs text-[#6B6B6B] mt-1">
+                  Your interview, resume and roadmap activity will appear here once activity history is available from the backend.
+                </p>
+              </div>
+            </div>
           </LightCard>
         </div>
 

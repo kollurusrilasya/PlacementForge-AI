@@ -1,19 +1,60 @@
-import React from 'react'
+
+import React, { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Menu, Flame, Coins } from 'lucide-react'
 import { Badge } from '../common/Badge'
 import { Button } from '../common/Button'
 import { Dropdown, DropdownItem, DropdownDivider } from '../common/Dropdown'
+import { apiRequest } from '../../services/api'
+import { useUser } from '../../context/UserContext'
+import { INITIAL_USER } from '../../data/initialMockData'
 
 export function Header({
   onMobileMenuOpen,
   user,
 }) {
   const navigate = useNavigate()
+  const { setUser } = useUser()
+
+  const handleLogout = () => {
+    localStorage.removeItem('placement_forge_token')
+    localStorage.removeItem('placement_forge_user')
+
+    setUser(INITIAL_USER)
+
+    navigate('/')
+  }
+
+  const [targetRole, setTargetRole] = useState(null)
+  const [readiness, setReadiness] = useState(null)
+
+  useEffect(() => {
+    const fetchSkillGap = async () => {
+      try {
+        const data = await apiRequest('/api/skill-gap')
+        const skillGap = data.skillGap
+
+        if (skillGap) {
+          setTargetRole(skillGap.targetRole || null)
+
+          const required = skillGap.requiredSkills || []
+          const missing = skillGap.missingSkills || []
+
+          if (required.length > 0) {
+            const matched = required.length - missing.length
+            setReadiness(Math.round((matched / required.length) * 100))
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch dashboard header data:', error.message)
+      }
+    }
+
+    fetchSkillGap()
+  }, [])
 
   return (
     <header className="h-16 px-4 sm:px-8 border-b border-[#E8E8E5] bg-[#FAFAF9]/80 backdrop-blur-md sticky top-0 z-10 flex items-center justify-between">
-      {/* Left: Mobile Toggle & Brand / Breadcrumb */}
       <div className="flex items-center gap-3">
         <button
           onClick={onMobileMenuOpen}
@@ -26,29 +67,27 @@ export function Header({
         <div className="hidden sm:flex items-center gap-2 text-xs text-[#6B6B6B]">
           <span className="font-medium text-[#111111]">Placement Command Center</span>
           <span>•</span>
-          <span>Target: {user?.targetRole || 'Software Engineer'}</span>
+          <span>Target: {targetRole || 'Not selected'}</span>
         </div>
       </div>
 
-      {/* Right: Credits, Readiness, Actions & Profile */}
       <div className="flex items-center gap-3">
-        {/* Credits Badge */}
         <Link to="/billing">
           <Badge variant="neutral" size="md" className="cursor-pointer hover:border-[#D0D0CB] transition-colors">
             <Coins className="w-3.5 h-3.5 text-[#D95B14]" />
-            <span className="font-semibold text-[#111111]">{user?.credits || 150}</span>
+            <span className="font-semibold text-[#111111]">{user?.credits ?? 150}</span>
             <span className="text-[#8E8E8E] hidden sm:inline">credits</span>
           </Badge>
         </Link>
 
-        {/* Readiness Pill */}
         <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white border border-[#E8E8E5] text-xs">
           <Flame className="w-3.5 h-3.5 text-[#D95B14]" />
           <span className="text-[#6B6B6B]">Readiness:</span>
-          <span className="font-semibold text-[#111111]">{user?.placementReadiness || 68}%</span>
+          <span className="font-semibold text-[#111111]">
+            {readiness !== null ? `${readiness}%` : '--'}
+          </span>
         </div>
 
-        {/* Start Interview CTA */}
         <Button
           variant="primary"
           size="sm"
@@ -58,7 +97,6 @@ export function Header({
           Start Practice
         </Button>
 
-        {/* User Dropdown */}
         <Dropdown
           align="right"
           trigger={
@@ -74,40 +112,34 @@ export function Header({
                 <p className="text-[11px] text-[#6B6B6B] truncate">{user?.email}</p>
               </div>
               <DropdownDivider />
-              <DropdownItem
-                onClick={() => {
-                  navigate('/profile')
-                  close()
-                }}
-              >
+              <DropdownItem onClick={() => {
+                navigate('/profile')
+                close()
+              }}>
                 Profile Overview
               </DropdownItem>
-              <DropdownItem
-                onClick={() => {
-                  navigate('/settings')
-                  close()
-                }}
-              >
+              <DropdownItem onClick={() => {
+                navigate('/settings')
+                close()
+              }}>
                 Account Settings
               </DropdownItem>
-              <DropdownItem
-                onClick={() => {
-                  navigate('/billing')
-                  close()
-                }}
-              >
+              <DropdownItem onClick={() => {
+                navigate('/billing')
+                close()
+              }}>
                 Credits & Billing
               </DropdownItem>
               <DropdownDivider />
               <DropdownItem
-                onClick={() => {
-                  navigate('/')
-                  close()
-                }}
-                danger
-              >
-                Return to Landing
-              </DropdownItem>
+  onClick={() => {
+    handleLogout()
+    close()
+  }}
+  danger
+>
+  Return to Landing
+</DropdownItem>
             </>
           )}
         </Dropdown>

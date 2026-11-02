@@ -9,7 +9,6 @@ import{
   Input,
 } from '../components/common'
 import ResumePreview from '../components/resume/ResumePreview'
-import { INITIAL_RESUME_DATA } from '../data/initialMockData'
 import { useToast } from '../context/ToastContext'
 import { apiRequest } from '../services/api'
 import {
@@ -21,84 +20,76 @@ import {
   Edit3,
 } from 'lucide-react'
 
-const STORAGE_KEY = 'placement_forge_resume'
+const EMPTY_RESUME_DATA = {
+  personalInfo: {
+    name: '',
+    email: '',
+    phone: '',
+    location: '',
+    linkedin: '',
+    github: '',
+  },
+  summary: '',
+  education: [],
+  experience: [],
+  projects: [],
+  skills: [],
+  certifications: [],
+  achievements: [],
+  codingProfiles: {
+    leetcode: '',
+    codeforces: '',
+    hackerrank: '',
+  },
+}
 
 export function ResumeBuilderPage() {
-  const [data, setData] = useState(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY)
-      if (saved) {
-        const parsed = JSON.parse(saved)
-        return {
-          ...INITIAL_RESUME_DATA,
-          ...parsed,
-          personalInfo: { ...INITIAL_RESUME_DATA.personalInfo, ...(parsed.personalInfo || {}) },
-          education: parsed.education || INITIAL_RESUME_DATA.education || [],
-          experience: parsed.experience || INITIAL_RESUME_DATA.experience || [],
-          projects: parsed.projects || INITIAL_RESUME_DATA.projects || [],
-          skills: parsed.skills || INITIAL_RESUME_DATA.skills || [],
-          certifications: parsed.certifications || INITIAL_RESUME_DATA.certifications || [],
-          achievements: parsed.achievements || INITIAL_RESUME_DATA.achievements || [],
-          codingProfiles: { ...INITIAL_RESUME_DATA.codingProfiles, ...(parsed.codingProfiles || {}) },
-        }
-      }
-      return INITIAL_RESUME_DATA
-    } catch {
-      return INITIAL_RESUME_DATA
-    }
-  })
+  const [data, setData] = useState(EMPTY_RESUME_DATA)
 
   const [template, setTemplate] = useState('classic')
   const [mobileTab, setMobileTab] = useState('editor') // 'editor' | 'preview'
   const toast = useToast()
   // Load saved resume data from MongoDB
-useEffect(() => {
-  const loadResume = async () => {
-    const token = localStorage.getItem('placement_forge_token')
-
-    if (!token) return
-
-    try {
-      const response = await apiRequest('/api/resume/builder', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      })
-
-      if (response.resumeData) {
-        const parsed = response.resumeData
-
-        setData({
-          ...INITIAL_RESUME_DATA,
-          ...parsed,
-          personalInfo: {
-            ...INITIAL_RESUME_DATA.personalInfo,
-            ...(parsed.personalInfo || {}),
-          },
-          education: parsed.education || [],
-          experience: parsed.experience || [],
-          projects: parsed.projects || [],
-          skills: parsed.skills || [],
-          certifications: parsed.certifications || [],
-          achievements: parsed.achievements || [],
-          codingProfiles: {
-            ...INITIAL_RESUME_DATA.codingProfiles,
-            ...(parsed.codingProfiles || {}),
-          },
+  useEffect(() => {
+    const loadResume = async () => {
+      try {
+        const response = await apiRequest('/api/resume/builder')
+  
+        if (response.resumeData) {
+          const parsed = response.resumeData
+  
+          setData({
+            ...EMPTY_RESUME_DATA,
+            ...parsed,
+            personalInfo: {
+              ...EMPTY_RESUME_DATA.personalInfo,
+              ...(parsed.personalInfo || {}),
+            },
+            education: parsed.education || [],
+            experience: parsed.experience || [],
+            projects: parsed.projects || [],
+            skills: parsed.skills || [],
+            certifications: parsed.certifications || [],
+            achievements: parsed.achievements || [],
+            codingProfiles: {
+              ...EMPTY_RESUME_DATA.codingProfiles,
+              ...(parsed.codingProfiles || {}),
+            },
+          })
+        } else {
+          setData(EMPTY_RESUME_DATA)
+        }
+      } catch (error) {
+        console.error('Failed to load resume:', error)
+  
+        toast.show('Could not load saved resume from server', {
+          type: 'error',
         })
-
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed))
       }
-    } catch (error) {
-      console.error('Failed to load resume:', error)
-      toast.show('Could not load saved resume from server', {
-        type: 'error',
-      })
     }
-  }
-
-  loadResume()
-}, [])
+  
+    loadResume()
+  }, [])
 
   // Save to localStorage
   const handleSave = async () => {
@@ -110,7 +101,7 @@ useEffect(() => {
     }
   
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+
   
       const response = await apiRequest('/api/resume/builder', {
         method: 'PUT',
@@ -170,15 +161,20 @@ useEffect(() => {
   }
 
   // Add / Remove Education
-  const addEducation = () => {
-    const newEdu = {
-      institution: 'University / Institute Name',
-      degree: 'B.Tech in Computer Science',
-      year: '2022 - 2026',
-      cgpa: '8.5 / 10',
-    }
-    setData((prev) => ({ ...prev, education: [...prev.education, newEdu] }))
+  // Add / Remove Education
+const addEducation = () => {
+  const newEdu = {
+    institution: '',
+    degree: '',
+    year: '',
+    cgpa: '',
   }
+
+  setData((prev) => ({
+    ...prev,
+    education: [...prev.education, newEdu],
+  }))
+}
 
   const removeEducation = (index) => {
     setData((prev) => ({
@@ -191,14 +187,18 @@ useEffect(() => {
   const addExperience = () => {
     const newExp = {
       id: 'exp_' + Date.now(),
-      title: 'Software Engineer Intern',
-      company: 'Tech Company',
-      location: 'Bangalore, India',
-      startDate: 'Jan 2026',
-      endDate: 'Present',
-      description: 'Built scalable backend microservices and improved database queries.',
+      title: '',
+      company: '',
+      location: '',
+      startDate: '',
+      endDate: '',
+      description: '',
     }
-    setData((prev) => ({ ...prev, experience: [...prev.experience, newExp] }))
+  
+    setData((prev) => ({
+      ...prev,
+      experience: [...prev.experience, newExp],
+    }))
   }
 
   const removeExperience = (index) => {
@@ -212,13 +212,16 @@ useEffect(() => {
   const addProject = () => {
     const newProj = {
       id: 'proj_' + Date.now(),
-      title: 'Full Stack Web Platform',
-      technologies: 'React, Node.js, PostgreSQL',
-      description: 'Engineered responsive web client and optimized query performance.',
+      title: '',
+      technologies: '',
+      description: '',
     }
-    setData((prev) => ({ ...prev, projects: [...prev.projects, newProj] }))
+  
+    setData((prev) => ({
+      ...prev,
+      projects: [...prev.projects, newProj],
+    }))
   }
-
   const removeProject = (index) => {
     setData((prev) => ({
       ...prev,
@@ -229,10 +232,11 @@ useEffect(() => {
   // Add / Remove Certification
   const addCertification = () => {
     const newCert = {
-      name: 'AWS Certified Cloud Practitioner',
-      issuer: 'Amazon Web Services',
-      date: '2025',
+      name: '',
+      issuer: '',
+      date: '',
     }
+  
     setData((prev) => ({
       ...prev,
       certifications: [...(prev.certifications || []), newCert],
@@ -250,10 +254,7 @@ useEffect(() => {
   const addAchievement = () => {
     setData((prev) => ({
       ...prev,
-      achievements: [
-        ...(prev.achievements || []),
-        'Finalist in Smart India Hackathon 2025 among 1,200+ teams',
-      ],
+      achievements: [...(prev.achievements || []), ''],
     }))
   }
 
@@ -347,7 +348,7 @@ useEffect(() => {
       </div>
 
       {/* Dual Pane Layout (Desktop Left Editor, Right Live Preview) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:items-stretch">
         {/* LEFT COLUMN: 9 SECTIONS EDITOR */}
         <div className={`lg:col-span-6 space-y-6 ${mobileTab === 'preview' ? 'hidden lg:block' : ''}`}>
           {/* Section 1: Personal Information */}
@@ -760,8 +761,12 @@ useEffect(() => {
         </div>
 
         {/* RIGHT COLUMN: STICKY LIVE RESUME PREVIEW */}
-        <div className={`lg:col-span-6 lg:sticky lg:top-24 h-[calc(100vh-8rem)] ${mobileTab === 'editor' ? 'hidden lg:block' : ''}`}>
-          <ResumePreview
+<div
+  className={`lg:col-span-6 lg:sticky lg:top-24 h-[calc(100vh-8rem)] min-h-0 overflow-hidden ${
+    mobileTab === 'editor' ? 'hidden lg:block' : ''
+  }`}
+>
+        <ResumePreview
             data={data}
             selectedTemplate={template}
             onSelectTemplate={setTemplate}

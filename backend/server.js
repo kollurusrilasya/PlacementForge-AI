@@ -190,6 +190,7 @@ app.post("/api/auth/login", async (req, res) => {
 
 // ==================== PROFILE ====================
 
+
 app.get("/api/profile", authMiddleware, async (req, res) => {
     try {
         const user = await User.findById(req.userId);
@@ -200,18 +201,97 @@ app.get("/api/profile", authMiddleware, async (req, res) => {
             });
         }
 
+        const targetRole = await TargetRole.findOne({
+            userId: req.userId
+        });
+
         res.json({
             message: "Profile fetched successfully",
             user: {
                 id: user._id,
                 name: user.name,
-                email: user.email
+                email: user.email,
+                college: user.college || "",
+                branch: user.branch || "",
+                targetPackage: user.targetPackage || "",
+                targetRole: targetRole?.role || ""
             }
         });
 
     } catch (error) {
         res.status(500).json({
             message: "Failed to fetch profile",
+            error: error.message
+        });
+    }
+});
+
+
+app.put("/api/profile", authMiddleware, async (req, res) => {
+    try {
+        const { name, email, college, branch, targetPackage, targetRole } = req.body;
+
+        if (!name || !email) {
+            return res.status(400).json({
+                message: "Name and email are required"
+            });
+        }
+
+        const existingUser = await User.findOne({
+            email,
+            _id: { $ne: req.userId }
+        });
+
+        if (existingUser) {
+            return res.status(409).json({
+                message: "Email is already registered"
+            });
+        }
+
+        const user = await User.findByIdAndUpdate(
+            req.userId,
+            {
+                name: name.trim(),
+                email: email.trim(),
+                college: college || "",
+                branch: branch || "",
+                targetPackage: targetPackage || ""
+            },
+            { new: true, runValidators: true }
+        );
+
+        if (!user) {
+            return res.status(404).json({
+                message: "User not found"
+            });
+        }
+
+        let savedTargetRole = null;
+
+        if (targetRole?.trim()) {
+            savedTargetRole = await TargetRole.findOneAndUpdate(
+                { userId: req.userId },
+                { role: targetRole.trim() },
+                { new: true, upsert: true, runValidators: true }
+            );
+        }
+
+        res.json({
+            message: "Profile updated successfully",
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                college: user.college,
+                branch: user.branch,
+                targetPackage: user.targetPackage,
+                targetRole: savedTargetRole?.role || targetRole || ""
+            }
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            message: "Failed to update profile",
             error: error.message
         });
     }

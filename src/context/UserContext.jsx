@@ -18,27 +18,33 @@ export function UserProvider({ children }) {
     }
   })
 
+  const [isUserLoading, setIsUserLoading] = useState(true)
+  const [userError, setUserError] = useState(null)
+
   // Fetch actual logged-in user from backend
   useEffect(() => {
     const fetchProfile = async () => {
       const token = localStorage.getItem(TOKEN_KEY)
 
-      if (!token) return
+      if (!token) {
+        setIsUserLoading(false)
+        return
+      }
 
       try {
-        const data = await apiRequest('/api/profile', {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        })
+        setUserError(null)
+
+        const data = await apiRequest('/api/profile')
 
         setUser((prev) => ({
           ...prev,
-          name: data.user.name,
-          email: data.user.email,
+          ...data.user,
         }))
       } catch (error) {
         console.error('Failed to fetch profile:', error.message)
+        setUserError(error.message || 'Failed to load user profile')
+      } finally {
+        setIsUserLoading(false)
       }
     }
 
@@ -50,12 +56,15 @@ export function UserProvider({ children }) {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(user))
     } catch {
-      // ignore write errors
+      // Ignore storage errors
     }
   }, [user])
 
   const updateUser = (fields) => {
-    setUser((prev) => ({ ...prev, ...fields }))
+    setUser((prev) => ({
+      ...prev,
+      ...fields,
+    }))
   }
 
   const spendCredits = (amount) => {
@@ -78,7 +87,15 @@ export function UserProvider({ children }) {
 
   return (
     <UserContext.Provider
-      value={{ user, setUser, updateUser, spendCredits, addCredits }}
+      value={{
+        user,
+        setUser,
+        updateUser,
+        spendCredits,
+        addCredits,
+        isUserLoading,
+        userError,
+      }}
     >
       {children}
     </UserContext.Provider>

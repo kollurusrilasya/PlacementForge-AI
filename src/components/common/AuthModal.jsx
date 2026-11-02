@@ -46,9 +46,8 @@ export function AuthModal({ isOpen, onClose, initialTab = 'login' }) {
   
         // Update logged-in user
         updateUser({
-          name: data.user.name,
-          email: data.user.email,
-        });
+          ...data.user,
+        })
   
         toast.show('Welcome back to Placement Forge AI', {
           type: 'success',

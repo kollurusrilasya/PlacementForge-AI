@@ -44,9 +44,14 @@ app.use(
     "/uploads",
     express.static(path.join(__dirname, "uploads"))
 );
+const uploadDir = path.join(__dirname, "uploads");
+
+// Create uploads folder if it doesn't exist
+fs.mkdirSync(uploadDir, { recursive: true });
+
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, "uploads/");
+        cb(null, uploadDir);
     },
 
     filename: (req, file, cb) => {

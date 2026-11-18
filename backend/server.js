@@ -31,7 +31,9 @@ app.use(cors({
     origin: [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
-        "https://placement-forge-ai.vercel.app"
+        "https://placement-forge-ai.vercel.app",
+        "https://placementforge-lemon.vercel.app",
+        "https://placementforge-pen1kv4xc-vaishnavi-gadepallis-projects.vercel.app"
     ],
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"]

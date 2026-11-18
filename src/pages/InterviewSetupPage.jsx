@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { apiRequest } from '../services/api'
 import {
   PageHeader,
   LightCard,
@@ -21,10 +22,26 @@ export function InterviewSetupPage() {
   const navigate = useNavigate()
   const toast = useToast()
 
-  const handleStart = () => {
-    toast.show('Initializing AI simulation room...', { type: 'forge' })
+  
+const handleStart = async () => {
+  try {
+    toast.show('Creating your interview session...', { type: 'forge' });
+
+    const data = await apiRequest('/api/interviews', {
+      method: 'POST',
+      body: JSON.stringify({
+        interviewType,
+        targetRole,
+        difficulty,
+        experienceLevel,
+        questionCount: parseInt(questionCount, 10)
+      }),
+    });
+
     navigate('/interview/session', {
       state: {
+        interviewId: data.interview._id,
+        questions: data.questions,
         interviewType,
         difficulty,
         targetRole,
@@ -32,8 +49,14 @@ export function InterviewSetupPage() {
         experienceLevel,
         voiceAvatar,
       },
-    })
+    });
+  } catch (error) {
+    toast.show(error.message || 'Failed to start interview', {
+      type: 'error',
+    });
   }
+};
+
 
   return (
     <div className="space-y-8 max-w-4xl mx-auto">

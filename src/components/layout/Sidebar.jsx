@@ -1,4 +1,5 @@
-import React from 'react'
+
+import React, { useEffect, useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -16,6 +17,7 @@ import {
 import { cn } from '../../utils/cn'
 import BrandLogo from '../common/BrandLogo'
 import { useToast } from '../../context/ToastContext'
+import { apiRequest } from '../../services/api'
 
 const NAV_ITEMS = [
   { label: 'Overview', path: '/dashboard', icon: LayoutDashboard },
@@ -37,6 +39,31 @@ export function Sidebar({
   const navigate = useNavigate()
   const toast = useToast()
 
+  const [readiness, setReadiness] = useState(null)
+
+  useEffect(() => {
+    const fetchReadiness = async () => {
+      try {
+        const data = await apiRequest('/api/skill-gap')
+        const skillGap = data.skillGap
+
+        if (skillGap) {
+          const required = skillGap.requiredSkills || []
+          const missing = skillGap.missingSkills || []
+
+          if (required.length > 0) {
+            const matched = required.length - missing.length
+            setReadiness(Math.round((matched / required.length) * 100))
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch sidebar readiness:', error.message)
+      }
+    }
+
+    fetchReadiness()
+  }, [])
+
   const handleLogout = () => {
     toast.show('Signed out from demo session', { type: 'info' })
     navigate('/')
@@ -44,7 +71,6 @@ export function Sidebar({
 
   const sidebarContent = (
     <div className="flex flex-col h-full bg-[#FAFAF9] border-r border-[#E8E8E5]">
-      {/* Brand Header */}
       <div className="h-16 px-4 flex items-center justify-between border-b border-[#E8E8E5]">
         <NavLink to="/dashboard" className="flex items-center">
           <BrandLogo collapsed={!isOpen} />
@@ -54,19 +80,16 @@ export function Sidebar({
           className="hidden md:flex w-7 h-7 rounded-lg items-center justify-center text-[#6B6B6B] hover:text-[#111111] hover:bg-[#F4F4F1] transition-colors"
           aria-label={isOpen ? 'Collapse sidebar' : 'Expand sidebar'}
         >
-          {isOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+          {isOpen
+            ? <ChevronLeft className="w-4 h-4" />
+            : <ChevronRight className="w-4 h-4" />}
         </button>
       </div>
 
-      {/* Main Navigation Items */}
       <div className="flex-1 overflow-y-auto py-5 px-3 space-y-1">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon
-          const isActive =
-            item.path === '/dashboard'
-              ? location.pathname === '/dashboard'
-              : location.pathname.startsWith(item.path)
-
+          const isActive = location.pathname === item.path
           return (
             <NavLink
               key={item.path}
@@ -81,14 +104,16 @@ export function Sidebar({
               )}
               title={!isOpen ? item.label : undefined}
             >
-              <Icon className={cn('w-4 h-4 shrink-0', isActive ? 'text-white' : 'text-[#6B6B6B]')} />
+              <Icon className={cn(
+                'w-4 h-4 shrink-0',
+                isActive ? 'text-white' : 'text-[#6B6B6B]'
+              )} />
               {isOpen && <span className="truncate">{item.label}</span>}
             </NavLink>
           )
         })}
       </div>
 
-      {/* Bottom User & Settings Area */}
       <div className="p-3 border-t border-[#E8E8E5] space-y-1 bg-[#F4F4F1]/60">
         <NavLink
           to="/profile"
@@ -136,7 +161,9 @@ export function Sidebar({
               <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
               <span className="truncate">{user.name}</span>
             </div>
-            <span className="font-semibold text-[#111111]">{user.placementReadiness}%</span>
+            <span className="font-semibold text-[#111111]">
+              {readiness !== null ? `${readiness}%` : '--'}
+            </span>
           </div>
         )}
       </div>

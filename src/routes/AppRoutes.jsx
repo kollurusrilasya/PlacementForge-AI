@@ -1,7 +1,7 @@
 import React, { lazy, Suspense } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import AppShell from '../components/layout/AppShell'
-
+import ProtectedRoute from './ProtectedRoute'
 // Lazy-loaded pages for optimal chunking & fast initial load
 const LandingPage = lazy(() => import('../pages/LandingPage'))
 const DashboardPage = lazy(() => import('../pages/DashboardPage'))
@@ -28,34 +28,38 @@ function PageFallback() {
   )
 }
 
+
 export function AppRoutes() {
   return (
     <Suspense fallback={<PageFallback />}>
       <Routes>
-        {/* Standalone Landing Page */}
+        {/* Public Landing Page */}
         <Route path="/" element={<LandingPage />} />
 
-        {/* Authenticated Platform Routes inside AppShell */}
-        <Route element={<AppShell />}>
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/design-system" element={<DesignSystemPage />} />
-          <Route path="/resume" element={<ResumeBuilderPage />} />
-          <Route path="/resume/scorer" element={<ResumeScorerPage />} />
-          <Route path="/interview" element={<InterviewHubPage />} />
-          <Route path="/interview/setup" element={<InterviewSetupPage />} />
-          <Route path="/interview/session" element={<InterviewSessionPage />} />
-          <Route path="/interview/report" element={<InterviewReportPage />} />
-          <Route path="/roadmap" element={<RoadmapPage />} />
-          <Route path="/billing" element={<BillingPage />} />
-          <Route path="/profile" element={<ProfilePage />} />
-          <Route path="/settings" element={<SettingsPage />} />
+        {/* Protected Platform Routes */}
+        <Route element={<ProtectedRoute />}>
+          <Route element={<AppShell />}>
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/design-system" element={<DesignSystemPage />} />
+            <Route path="/resume" element={<ResumeBuilderPage />} />
+            <Route path="/resume/scorer" element={<ResumeScorerPage />} />
+            <Route path="/interview" element={<InterviewHubPage />} />
+            <Route path="/interview/setup" element={<InterviewSetupPage />} />
+            <Route path="/interview/session" element={<InterviewSessionPage />} />
+            <Route path="/interview/report" element={<InterviewReportPage />} />
+            <Route path="/roadmap" element={<RoadmapPage />} />
+            <Route path="/billing" element={<BillingPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+          </Route>
         </Route>
 
-        {/* Fallback 404 */}
+        {/* 404 Page */}
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </Suspense>
   )
 }
+
 
 export default AppRoutes

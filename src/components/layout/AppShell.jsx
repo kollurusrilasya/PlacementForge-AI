@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import Sidebar from './Sidebar'
@@ -11,24 +12,22 @@ export function AppShell() {
   const { user } = useUser()
 
   return (
-    <div className="min-h-screen bg-[#FAFAF9] flex">
-      {/* Sidebar */}
+    <div className="h-screen overflow-hidden bg-[#FAFAF9] flex">
       <Sidebar
-        isOpen={isSidebarOpen}
-        onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
+        isSidebarOpen={isSidebarOpen}
+        setIsSidebarOpen={setIsSidebarOpen}
         isMobileOpen={isMobileOpen}
-        onMobileClose={() => setIsMobileOpen(false)}
-        user={user}
+        setIsMobileOpen={setIsMobileOpen}
       />
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0">
         <Header
-          onMobileMenuOpen={() => setIsMobileOpen(true)}
           user={user}
+          setIsMobileOpen={setIsMobileOpen}
+          setIsSidebarOpen={setIsSidebarOpen}
         />
 
-        <main className="flex-1 p-4 sm:p-8 max-w-7xl w-full mx-auto">
+        <main className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-8 max-w-7xl w-full mx-auto">
           <ErrorBoundary>
             <Outlet />
           </ErrorBoundary>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   PageHeader,
@@ -27,13 +27,37 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import { useToast } from '../context/ToastContext'
+import { apiRequest } from '../services/api'
 
 export function ResumeScorerPage() {
   const [scanState, setScanState] = useState('idle') // 'idle' | 'scanning' | 'results' | 'error'
   const [scanStep, setScanStep] = useState(0)
-  const [fileName, setFileName] = useState('Sampath_Srinivas_Resume.pdf')
+  const [fileName, setFileName] = useState('')
+  const [scoreData, setScoreData] = useState(null)
+  const [scoreHistory, setScoreHistory] = useState([])
   const navigate = useNavigate()
   const toast = useToast()
+  useEffect(() => {
+  const loadHistory = async () => {
+    const token = localStorage.getItem('placement_forge_token')
+    if (!token) return
+
+    try {
+      const result = await apiRequest('/api/resume/score-history', {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+
+      setScoreHistory(result.history || [])
+    } catch (error) {
+      console.error('Could not load score history:', error)
+    }
+  }
+
+  loadHistory()
+}, [])
 
   const SCAN_STEPS = [
     'Parsing document layout & section hierarchy...',
@@ -42,7 +66,7 @@ export function ResumeScorerPage() {
     'Generating ATS compatibility rubric & score...',
   ]
 
-  const SCORE_HISTORY = [
+ /* const SCORE_HISTORY = [
     { name: 'Initial Draft', score: 62 },
     { name: 'Rev 1', score: 68 },
     { name: 'Rev 2', score: 75 },
@@ -93,24 +117,152 @@ export function ResumeScorerPage() {
       after: 'Engineered a distributed key-value store in Go implementing Raft consensus for linearizable reads across 5 replicas.',
       impact: '+5 pts ATS score',
     },
-  ]
+  ]*/
 
-  const runScan = () => {
-    setScanState('scanning')
-    setScanStep(0)
-
-    const interval = setInterval(() => {
-      setScanStep((prev) => {
-        if (prev >= SCAN_STEPS.length - 1) {
-          clearInterval(interval)
-          setScanState('results')
-          toast.show('Resume analysis completed: 82/100', { type: 'forge' })
-          return prev
-        }
-        return prev + 1
-      })
-    }, 700)
+  
+const handleResumeUpload = async (file) => {
+  if (!file) {
+      toast.show('Please select a PDF file', { type: 'error' });
+      return;
   }
+
+  if (
+      file.type !== 'application/pdf' &&
+      !file.name.toLowerCase().endsWith('.pdf')
+  ) {
+      toast.show('Only PDF files are allowed', { type: 'error' });
+      return;
+  }
+
+  const formData = new FormData();
+  formData.append('resume', file);
+
+  try {
+    setFileName(file.name);
+    setScanState('scanning');
+    setScanStep(0);
+
+      // Step 1: Upload PDF
+      await apiRequest('/api/resume/upload', {
+          method: 'POST',
+          body: formData,
+      });
+
+      // Step 2: Extract PDF text
+      await apiRequest('/api/resume/text', {
+          method: 'GET',
+      });
+
+      // Step 3: Calculate ATS score
+      const result = await apiRequest('/api/ats/score', {
+          method: 'POST',
+          body: JSON.stringify({
+              source: 'pdf',
+          }),
+      });
+
+      if (!result.result) {
+          throw new Error('ATS scoring returned an invalid response');
+      }
+
+      setFileName(file.name);
+      setScoreData(formatATSResult(result.result));
+      setScanStep(SCAN_STEPS.length - 1);
+      setScanState('results');
+
+      toast.show('PDF uploaded and ATS analysis completed!', {
+          type: 'success',
+      });
+
+  } catch (error) {
+      setScanState('idle');
+
+      toast.show(error.message || 'Resume analysis failed', {
+          type: 'error',
+      });
+  }
+};
+
+  const formatATSResult = (result) => {
+    const categories = [
+        { key: 'skills', label: 'Skills', max: 40 },
+        { key: 'completeness', label: 'Resume Completeness', max: 20 },
+        { key: 'projectsAndExperience', label: 'Projects & Experience', max: 15 },
+        { key: 'education', label: 'Education', max: 10 },
+        { key: 'certifications', label: 'Certifications', max: 10 },
+        { key: 'readability', label: 'Readability & Structure', max: 5 },
+    ];
+
+    const matched = result.matchedSkills || [];
+    const missing = result.missingSkills || [];
+
+    return {
+        score: result.totalScore,
+        targetRole: result.targetRole,
+
+        categoryScores: categories.map(category => ({
+            label: category.label,
+            score: result.categoryScores[category.key] || 0,
+            max: category.max,
+        })),
+
+        matchedKeywords: [
+            ...matched,
+            ...(result.additionalRelevantSkills || []),
+        ],
+
+        missingKeywords: missing,
+
+        strengths: [
+            `${matched.length} required skills matched.`,
+            ...(result.additionalRelevantSkills?.length
+                ? [`${result.additionalRelevantSkills.length} additional relevant skills found.`]
+                : []),
+        ],
+
+        weaknesses: missing.length
+            ? [`${missing.length} required skills are missing.`]
+            : [],
+
+        suggestions: result.suggestions || [],
+    };
+};
+
+
+const runScan = async () => {
+  try {
+      setScanState('scanning');
+      setScanStep(0);
+      setScoreData(null);
+
+      const result = await apiRequest('/api/ats/score', {
+          method: 'POST',
+          body: JSON.stringify({
+              source: 'builder',
+          }),
+      });
+
+      if (!result.result) {
+          throw new Error('ATS scoring returned an invalid response');
+      }
+
+      setScoreData(formatATSResult(result.result));
+      setScanStep(SCAN_STEPS.length - 1);
+      setScanState('results');
+
+      toast.show('ATS analysis completed successfully!', {
+          type: 'success',
+      });
+
+  } catch (error) {
+      setScanState('idle');
+
+      toast.show(error.message || 'ATS analysis failed', {
+          type: 'error',
+      });
+  }
+};
+
 
   return (
     <div className="space-y-8">
@@ -120,7 +272,7 @@ export function ResumeScorerPage() {
         breadcrumbs={['Preparation', 'Resume Scorer']}
         badge={
           scanState === 'results' ? (
-            <Badge variant="accent" dot>ATS Score: 82/100</Badge>
+            <Badge variant="accent" dot>ATS Analysis Complete</Badge>
           ) : null
         }
         action={
@@ -158,12 +310,15 @@ export function ResumeScorerPage() {
                   type="file"
                   accept=".pdf"
                   className="hidden"
-                  onChange={(e) => {
-                    if (e.target.files?.[0]) {
-                      setFileName(e.target.files[0].name)
-                      runScan()
-                    }
-                  }}
+                   onChange={(e) => {
+  const file = e.target.files?.[0]
+
+  if (file) {
+    handleResumeUpload(file)
+  }
+
+  e.target.value = ''
+}}
                 />
                 Upload Custom PDF
               </label>
@@ -219,7 +374,7 @@ export function ResumeScorerPage() {
       )}
 
       {/* ── 3. RESULTS DASHBOARD STATE ── */}
-      {scanState === 'results' && (
+      {scanState === 'results' && scoreData && (
         <div className="space-y-8 animate-in fade-in duration-300">
           {/* Top Score Banner */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -228,19 +383,23 @@ export function ResumeScorerPage() {
               <div>
                 <Badge variant="accent" size="sm" dot>ATS Diagnostic Verified</Badge>
                 <div className="mt-4 flex items-baseline gap-2">
-                  <span className="text-6xl font-bold tracking-tight text-white">82</span>
+                  <span className="text-6xl font-bold tracking-tight text-white">
+                    {scoreData?.score ?? 0}
+                  </span>
                   <span className="text-xl text-[#8E8E8E]">/100</span>
                 </div>
                 <p className="text-sm font-semibold text-emerald-400 mt-2">
                   Strong Candidate Tier (Top 15th Percentile)
                 </p>
                 <p className="text-xs text-[#A0A0A0] mt-1 leading-relaxed">
-                  Your resume successfully passed structural ATS checks. Addressing the missing cloud keywords will push your score above 90.
+                  Your score is based on the extracted resume text, target-role keywords, and available resume sections.
                 </p>
               </div>
 
               <div className="mt-6 pt-4 border-t border-[#2A2A28] flex items-center justify-between">
-                <span className="text-xs text-[#8E8E8E]">Target Role: SDE-1</span>
+                <span className="text-xs text-[#8E8E8E]">
+                  Target Role: {scoreData?.targetRole || 'Not specified'}
+                </span>
                 <PrimaryButton
                   size="sm"
                   className="bg-[#D95B14] text-white hover:bg-[#BF4D0C]"
@@ -258,19 +417,24 @@ export function ResumeScorerPage() {
                   <h4 className="text-xs font-semibold text-[#111111]">Score Progression History</h4>
                   <p className="text-[11px] text-[#6B6B6B]">Tracking score across revisions</p>
                 </div>
-                <div className="flex items-center gap-3 text-xs">
-                  <span className="text-[#6B6B6B]">Previous: <strong className="text-[#111111]">68</strong></span>
-                  <span className="text-[#6B6B6B]">Current: <strong className="text-[#D95B14]">82</strong></span>
-                  <span className="text-[#6B6B6B]">Target: <strong className="text-emerald-600">90</strong></span>
-                </div>
               </div>
 
               <div className="h-48 w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={SCORE_HISTORY} margin={{ top: 10, right: 20, bottom: 0, left: -20 }}>
+                  <LineChart
+                   data={scoreHistory.map((item) => ({
+                    name: new Date(item.createdAt).toLocaleDateString(),
+                    score: item.score,
+                  }))}
+                  margin={{ top: 10, right: 20, bottom: 0, left: -20 }}
+                  >
                     <CartesianGrid stroke="#E8E8E5" strokeDasharray="3 3" />
                     <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#6B6B6B' }} />
-                    <YAxis domain={[50, 100]} tick={{ fontSize: 10, fill: '#6B6B6B' }} />
+                    <YAxis
+  type="number"
+  domain={[0, 100]}
+  tick={{ fontSize: 10, fill: '#6B6B6B' }}
+/>
                     <Tooltip
                       contentStyle={{
                         backgroundColor: '#111111',
@@ -290,10 +454,6 @@ export function ResumeScorerPage() {
                   </LineChart>
                 </ResponsiveContainer>
               </div>
-
-              <p className="text-[11px] text-[#6B6B6B] mt-2">
-                +14 points gained since first unformatted draft.
-              </p>
             </LightCard>
           </div>
 
@@ -301,7 +461,7 @@ export function ResumeScorerPage() {
           <div className="space-y-4">
             <h3 className="text-base font-semibold text-[#111111]">Detailed Rubric Breakdown</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {BREAKDOWN.map((cat, idx) => (
+              {(scoreData?.categoryScores || []).map((cat, idx) => (
                 <LightCard key={idx} className="p-4 space-y-2">
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-semibold text-[#111111]">{cat.label}</span>
@@ -327,18 +487,12 @@ export function ResumeScorerPage() {
                 <span>Verified Strengths</span>
               </div>
               <ul className="text-xs text-[#6B6B6B] space-y-2">
-                <li className="flex items-start gap-2">
-                  <span className="text-emerald-600 font-bold">•</span>
-                  <span>Quantifiable latency reduction metrics present in work experience (34% payload reduction).</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-emerald-600 font-bold">•</span>
-                  <span>Standard single-column chronological structure parsed without OCR errors.</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-emerald-600 font-bold">•</span>
-                  <span>Strong core algorithmic and full-stack vocabulary aligned with SDE roles.</span>
-                </li>
+                {(scoreData?.strengths || []).map((item, index) => (
+                  <li key={index} className="flex items-start gap-2">
+                    <span className="text-emerald-600 font-bold">•</span>
+                    <span>{item}</span>
+                    </li>
+                  ))}
               </ul>
             </LightCard>
 
@@ -349,18 +503,12 @@ export function ResumeScorerPage() {
                 <span>Identified Weaknesses</span>
               </div>
               <ul className="text-xs text-[#6B6B6B] space-y-2">
-                <li className="flex items-start gap-2">
-                  <span className="text-rose-600 font-bold">•</span>
-                  <span>Second project lacks production scale metrics (number of active queries or users).</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-rose-600 font-bold">•</span>
-                  <span>Missing cloud infrastructure and container orchestration keywords.</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-rose-600 font-bold">•</span>
-                  <span>Professional summary could be more concise to save above-the-fold space.</span>
-                </li>
+                {(scoreData?.weaknesses || []).map((item, index) => (
+                  <li key={index} className="flex items-start gap-2">
+                    <span className="text-rose-600 font-bold">•</span>
+                    <span>{item}</span>
+                    </li>
+                  ))}
               </ul>
             </LightCard>
           </div>
@@ -372,14 +520,19 @@ export function ResumeScorerPage() {
                 <h4 className="text-sm font-semibold text-[#111111]">ATS Recruiter Keyword Analysis</h4>
                 <p className="text-xs text-[#6B6B6B]">Matching against Software Engineer (12 LPA) requirements</p>
               </div>
-              <Badge variant="neutral" size="sm">10 / 15 Matched</Badge>
+              <Badge variant="neutral" size="sm">
+                {(scoreData?.matchedKeywords || []).length} / {
+                (scoreData?.matchedKeywords || []).length +
+                (scoreData?.missingKeywords || []).length
+                } Matched
+              </Badge>
             </div>
 
             <div className="space-y-3">
               <div>
                 <span className="text-xs font-medium text-emerald-700 block mb-2">Matched Keywords</span>
                 <div className="flex flex-wrap gap-1.5">
-                  {MATCHED_KEYWORDS.map((kw, i) => (
+                  {(scoreData?.matchedKeywords || []).map((kw, i) => (
                     <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-[6px] bg-emerald-50 text-emerald-800 text-xs font-medium border border-emerald-200">
                       <Check className="w-3 h-3 text-emerald-600" />
                       {kw}
@@ -391,7 +544,7 @@ export function ResumeScorerPage() {
               <div className="pt-2">
                 <span className="text-xs font-medium text-rose-700 block mb-2">Missing High-Value Keywords</span>
                 <div className="flex flex-wrap gap-1.5">
-                  {MISSING_KEYWORDS.map((kw, i) => (
+                  {(scoreData?.missingKeywords || []).map((kw, i) => (
                     <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-[6px] bg-rose-50 text-rose-800 text-xs font-medium border border-rose-200">
                       <X className="w-3 h-3 text-rose-600" />
                       {kw}
@@ -403,30 +556,20 @@ export function ResumeScorerPage() {
           </LightCard>
 
           {/* Before & After Suggestions */}
-          <div className="space-y-4">
-            <h3 className="text-base font-semibold text-[#111111]">Before & After Rewrite Suggestions</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {BEFORE_AFTER.map((item, idx) => (
-                <LightCard key={idx} className="p-5 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-[#111111]">{item.section}</span>
-                    <Badge variant="accent" size="sm">{item.impact}</Badge>
-                  </div>
+          {/* ATS Improvement Suggestions */}
+<div className="space-y-4">
+  <h3 className="text-base font-semibold text-[#111111]">
+    Recommended Improvements
+  </h3>
 
-                  <div className="p-3 rounded-[8px] bg-rose-50/70 border border-rose-200 text-xs text-rose-900">
-                    <span className="font-bold text-[10px] uppercase tracking-wider block text-rose-700 mb-0.5">Before (Vague)</span>
-                    {item.before}
-                  </div>
-
-                  <div className="p-3 rounded-[8px] bg-emerald-50/70 border border-emerald-200 text-xs text-emerald-950">
-                    <span className="font-bold text-[10px] uppercase tracking-wider block text-emerald-700 mb-0.5">After (Placement Forge Recommendation)</span>
-                    {item.after}
-                  </div>
-                </LightCard>
-              ))}
-            </div>
-          </div>
-
+  <div className="space-y-3">
+    {(scoreData?.suggestions || []).map((item, index) => (
+      <LightCard key={index} className="p-4">
+        <p className="text-xs text-[#6B6B6B]">{item}</p>
+      </LightCard>
+    ))}
+  </div>
+</div>
           {/* Action Bar */}
           <div className="p-6 rounded-[14px] bg-[#111111] text-white flex flex-col sm:flex-row items-center justify-between gap-4">
             <div>

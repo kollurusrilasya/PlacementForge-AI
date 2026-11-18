@@ -48,6 +48,11 @@ const ROLE_REQUIREMENTS = {
         "Python", "Machine Learning", "Deep Learning",
         "TensorFlow", "PyTorch", "Scikit-learn"
     ],
+    "ML Developer": [
+        "Python", "Machine Learning", "Deep Learning",
+        "TensorFlow", "PyTorch", "Scikit-learn",
+        "Pandas", "NumPy", "Statistics", "Data Structures"
+    ],
 
     "AI Engineer": [
         "Python", "Machine Learning", "Deep Learning",
@@ -72,6 +77,11 @@ const ROLE_REQUIREMENTS = {
     "Cybersecurity Analyst": [
         "Networking", "Linux", "Cybersecurity",
         "Python", "SIEM", "Ethical Hacking"
+    ],
+    "Software Engineer": [
+        "Java", "Python", "JavaScript", "OOP",
+        "Data Structures", "Algorithms", "SQL",
+        "DBMS", "REST API", "Git"
     ]
 };
 
@@ -114,6 +124,10 @@ const ROLE_RELEVANT_SKILLS = {
     "Data Analyst": [
         "Java", "JavaScript", "MongoDB", "Git"
     ],
+    "ML Developer": [
+        "SQL", "Flask", "FastAPI", "OpenCV",
+        "NLP", "Computer Vision", "Docker", "AWS"
+    ],
 
     "Data Scientist": [
         "Java", "R", "Deep Learning", "Docker"
@@ -141,6 +155,11 @@ const ROLE_RELEVANT_SKILLS = {
 
     "Cybersecurity Analyst": [
         "Java", "JavaScript", "Docker", "AWS"
+    ],
+    "Software Engineer": [
+        "React", "Node.js", "Express.js",
+        "MongoDB", "Spring Boot", "Docker",
+        "AWS", "GitHub"
     ]
 };
 

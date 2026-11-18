@@ -11,6 +11,11 @@ const targetRoleSchema = new mongoose.Schema({
     role: {
         type: String,
         required: true
+    },
+
+    targetPackage: {
+        type: Number,
+        default: null
     }
 });
 

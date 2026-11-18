@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import ReactMarkdown from 'react-markdown'
+import { useNavigate, useLocation } from 'react-router-dom'
 import {
   PageHeader,
   LightCard,
@@ -32,13 +33,59 @@ import {
   Tooltip,
 } from 'recharts'
 import { useToast } from '../context/ToastContext'
+import { apiRequest } from '../services/api'
 
 export function InterviewReportPage() {
   const navigate = useNavigate()
-  const toast = useToast()
+const location = useLocation()
+const toast = useToast()
+
+const [interview, setInterview] = useState(null)
+const [loading, setLoading] = useState(true)
+const [error, setError] = useState('')
+
+useEffect(() => {
+  const fetchInterview = async () => {
+    const interviewId = location.state?.interviewId
+
+    if (!interviewId) {
+      setError('Interview ID not found. Please complete an interview first.')
+      setLoading(false)
+      return
+    }
+
+    try {
+      const data = await apiRequest(`/api/interviews/${interviewId}`)
+      setInterview(data.interview)
+    } catch (err) {
+      setError(err.message || 'Failed to load interview report')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  fetchInterview()
+}, [location.state])
 
   const [animatedScore, setAnimatedScore] = useState(0)
-  const targetScore = 78
+  const evaluatedAnswers = interview?.answers?.filter(
+    (answer) => answer.evaluation && typeof answer.evaluation.score === 'number'
+  ) || []
+  
+  
+const totalQuestionCount = interview?.questions?.length || 0
+
+const targetScore = totalQuestionCount > 0
+  ? Math.round(
+      (
+        evaluatedAnswers.reduce(
+          (total, answer) => total + answer.evaluation.score,
+          0
+        ) / totalQuestionCount
+      ) * 10
+    )
+  : 0
+
 
   useEffect(() => {
     let start = 0
@@ -52,60 +99,93 @@ export function InterviewReportPage() {
       }
     }, 25)
     return () => clearInterval(timer)
-  }, [])
+  }, [targetScore])
 
   // 8 Dimensions specified in prompt
-  const RADAR_DATA = [
-    { metric: 'Correctness', score: 82, fullMark: 100 },
-    { metric: 'Communication', score: 76, fullMark: 100 },
-    { metric: 'Clarity', score: 80, fullMark: 100 },
-    { metric: 'Problem Solving', score: 84, fullMark: 100 },
-    { metric: 'Technical Knowledge', score: 79, fullMark: 100 },
-    { metric: 'Relevance', score: 85, fullMark: 100 },
-    { metric: 'Efficiency', score: 72, fullMark: 100 },
-    { metric: 'Confidence', score: 75, fullMark: 100 },
-  ]
+  
+const QUESTION_ANALYSIS = (interview?.questions || []).map((question, index) => {
+  const answer = interview?.answers?.find(
+    (item) => item.questionId === question.questionId
+  )
 
-  const SCORE_HISTORY = [
-    { session: 'Session 1', score: 62 },
-    { session: 'Session 2', score: 68 },
-    { session: 'Session 3', score: 71 },
-    { session: 'Session 4', score: 74 },
-    { session: 'Today (Session 5)', score: 78 },
-  ]
+  return {
+    qNum: index + 1,
+    question: question.question,
+    userAnswer: answer
+      ? answer.answer || answer.code || 'No answer submitted'
+      : 'No answer submitted',
+    score: answer?.evaluation
+      ? Math.round(answer.evaluation.score * 10)
+      : 0,
+    whatWentWell:
+      answer?.evaluation?.strengths?.join(' ') ||
+      answer?.evaluation?.feedback ||
+      'No feedback available',
+    whatCouldImprove:
+      answer?.evaluation?.improvements?.join(' ') ||
+      'No improvement suggestions available',
+    idealAnswer:
+      answer?.evaluation?.idealAnswer ||
+      'No ideal answer available',
+  }
+})
 
-  const QUESTION_ANALYSIS = [
-    {
-      qNum: 1,
-      question: 'Explain the internal diffing algorithm of React Virtual DOM, and how unique keys prevent unnecessary DOM node recreations.',
-      userAnswer: 'React relies on Virtual DOM trees. When state changes, it compares the new tree with the previous one. Keys help identify which items changed, were added, or were removed.',
-      score: 84,
-      whatWentWell: 'Accurately articulated the tree diffing intuition and role of keys in item reconciliation.',
-      whatCouldImprove: 'Could explicitly mention the O(n) heuristic assumption and avoiding index keys in dynamic lists.',
-      idealAnswer: 'React assumes elements of different types produce different subtrees and uses persistent keys to uniquely identity child nodes across renders, maintaining O(n) linear tree comparison.',
-    },
-    {
-      qNum: 2,
-      question: 'Given an array prices where prices[i] is the price on day i, maximize profit from one transaction.',
-      userAnswer: 'Used a single pass maintaining the running minimum price and calculating maximum profit at each step.',
-      score: 86,
-      whatWentWell: 'Optimal O(n) time and O(1) space complexity solution implemented in Monaco editor without bugs.',
-      whatCouldImprove: 'Could walk through empty array and monotonic decreasing array edge cases during explanation.',
-      idealAnswer: 'Track minimum price so far and running maxProfit in a single iteration through the array in O(n) time.',
-    },
-    {
-      qNum: 3,
-      question: 'Describe how an index works in relational databases. Why can having too many indexes degrade write performance?',
-      score: 72,
-      userAnswer: 'Indexes make searches faster like a book index. Too many indexes make updates slower because you have to update the indexes too.',
-      whatWentWell: 'Correctly understood the fundamental read-versus-write trade-off.',
-      whatCouldImprove: 'Deeper structural terminology needed: mention B-Trees, disk pages, and index rebalancing overhead.',
-      idealAnswer: 'Indexes maintain balanced B-Trees pointing to row pointers. While reading is O(log n), each write requires updating all secondary index trees, incurring significant disk I/O.',
-    },
+  
+  const RADAR_DATA = QUESTION_ANALYSIS.map((qa) => ({
+    metric: `Q${qa.qNum}`,
+    score: qa.score,
+    fullMark: 100,
+  }))
+  const strengths = [
+    ...new Set(
+      evaluatedAnswers.flatMap(
+        (answer) => answer.evaluation?.strengths || []
+      )
+    ),
   ]
+  
+  const improvements = [
+    ...new Set(
+      evaluatedAnswers.flatMap(
+        (answer) => answer.evaluation?.improvements || []
+      )
+    ),
+  ]
+  const highestQuestion = [...QUESTION_ANALYSIS].sort(
+    (a, b) => b.score - a.score
+  )[0]
+  
+  const lowestQuestion = [...QUESTION_ANALYSIS].sort(
+    (a, b) => a.score - b.score
+  )[0]
+  const aiFeedback = evaluatedAnswers
+  .map((answer) => answer.evaluation?.feedback)
+  .filter(Boolean)
 
+  if (loading) {
+    return (
+      <div className="p-10 text-center">
+        Loading your AI interview report...
+      </div>
+    )
+  }
+  
+  if (error || !interview) {
+    return (
+      <div className="p-10 text-center">
+        <p className="text-red-500">{error || 'Interview report not found'}</p>
+        <button
+          onClick={() => navigate('/interview')}
+          className="mt-4 px-4 py-2 rounded-lg bg-black text-white"
+        >
+          Back to Interview Studio
+        </button>
+      </div>
+    )
+  }
+  
   return (
-    <div className="space-y-8 max-w-5xl mx-auto">
+      <div className="space-y-8 max-w-5xl mx-auto">
       {/* ── HEADER ── */}
       <PageHeader
         title="Interview Completed"
@@ -146,16 +226,29 @@ export function InterviewReportPage() {
               <span className="text-2xl text-[#8E8E8E]">/100</span>
             </div>
             <h3 className="text-lg font-semibold text-emerald-400 mt-3">
-              Verdict: Strong SDE-1 Contender
-            </h3>
-            <p className="text-xs text-[#A0A0A0] mt-1.5 leading-relaxed">
-              Your overall problem solving and communication exceeded the campus hiring benchmark (70). Focusing on database internal complexity will help reach top-tier thresholds.
-            </p>
+  Verdict: {
+    targetScore >= 85
+      ? 'Excellent Performance'
+      : targetScore >= 70
+      ? 'Strong Performance'
+      : targetScore >= 50
+      ? 'Needs Improvement'
+      : 'More Practice Needed'
+  }
+</h3>
+<p className="text-xs text-[#A0A0A0] mt-1.5 leading-relaxed">
+  Your performance is based on AI evaluation of your submitted interview answers.
+  Review the feedback and improvement areas to prepare for your next interview.
+</p>
           </div>
 
           <div className="mt-8 pt-4 border-t border-[#2A2A28] flex items-center justify-between text-xs text-[#8E8E8E]">
-            <span>Candidate: <strong>Sampath Srinivas</strong></span>
-            <span>Target: <strong>12 LPA SDE</strong></span>
+          <span>
+  Interview Type: <strong>{interview.interviewType?.toUpperCase()}</strong>
+</span>
+<span>
+  Target Role: <strong>{interview.targetRole}</strong>
+</span>
           </div>
         </DarkCard>
 
@@ -193,9 +286,22 @@ export function InterviewReportPage() {
           </div>
 
           <div className="pt-3 border-t border-[#E8E8E5] flex items-center justify-between text-xs text-[#6B6B6B]">
-            <span>Highest: <strong className="text-[#111111]">Relevance (85)</strong></span>
-            <span>Focus Area: <strong className="text-[#D95B14]">Efficiency (72)</strong></span>
-          </div>
+  <span>
+    Highest: <strong className="text-[#111111]">
+      {highestQuestion
+        ? `Q${highestQuestion.qNum} (${highestQuestion.score})`
+        : 'N/A'}
+    </strong>
+  </span>
+
+  <span>
+    Focus Area: <strong className="text-[#D95B14]">
+      {lowestQuestion
+        ? `Q${lowestQuestion.qNum} (${lowestQuestion.score})`
+        : 'N/A'}
+    </strong>
+  </span>
+</div>
         </LightCard>
       </div>
 
@@ -208,19 +314,17 @@ export function InterviewReportPage() {
             <span>2. Verified Strengths</span>
           </div>
           <ul className="text-xs text-[#6B6B6B] space-y-2">
-            <li className="flex items-start gap-2">
-              <span className="text-emerald-600 font-bold">•</span>
-              <span><strong>Optimal Algorithmic Intuition:</strong> Successfully coded O(n) single-pass solutions without regression.</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="text-emerald-600 font-bold">•</span>
-              <span><strong>Structured Delivery:</strong> Used logical step-by-step narration while explaining Virtual DOM diffing.</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="text-emerald-600 font-bold">•</span>
-              <span><strong>Relevance:</strong> Addressed specific question prompts directly without rambling.</span>
-            </li>
-          </ul>
+  {strengths.length > 0 ? (
+    strengths.map((item, index) => (
+      <li key={index} className="flex items-start gap-2">
+        <span className="text-emerald-600 font-bold">•</span>
+        <span>{item}</span>
+      </li>
+    ))
+  ) : (
+    <li>No strengths available yet.</li>
+  )}
+</ul>
         </LightCard>
 
         {/* Areas to Improve */}
@@ -230,19 +334,17 @@ export function InterviewReportPage() {
             <span>3. Areas to Improve</span>
           </div>
           <ul className="text-xs text-[#6B6B6B] space-y-2">
-            <li className="flex items-start gap-2">
-              <span className="text-[#D95B14] font-bold">•</span>
-              <span><strong>Core CS Terminology:</strong> Explain database internals using formal concepts (B-Tree splits, write amplification).</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="text-[#D95B14] font-bold">•</span>
-              <span><strong>Edge Case Verification:</strong> Proactively dry-run null/empty array inputs before announcing completion.</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="text-[#D95B14] font-bold">•</span>
-              <span><strong>Time Complexity Justification:</strong> State exact Big-O space and time complexity upfront.</span>
-            </li>
-          </ul>
+  {improvements.length > 0 ? (
+    improvements.map((item, index) => (
+      <li key={index} className="flex items-start gap-2">
+        <span className="text-[#D95B14] font-bold">•</span>
+        <span>{item}</span>
+      </li>
+    ))
+  ) : (
+    <li>No improvement suggestions available yet.</li>
+  )}
+</ul>
         </LightCard>
       </div>
 
@@ -291,11 +393,48 @@ export function InterviewReportPage() {
                 </div>
               </div>
 
-              {/* Ideal Answer */}
-              <div className="p-3 rounded-[8px] bg-[#111111] text-white text-xs">
-                <span className="font-semibold text-[#D95B14] block mb-1">Benchmark Ideal Answer:</span>
-                <p className="text-zinc-300 leading-relaxed">{qa.idealAnswer}</p>
-              </div>
+              
+{/* Ideal Answer */}
+<div className="p-4 rounded-[8px] bg-[#111111] text-white text-xs">
+  <span className="font-semibold text-[#D95B14] block mb-3">
+    Benchmark Ideal Answer:
+  </span>
+
+  <div className="text-zinc-300 leading-relaxed
+    [&_p]:mb-2
+    [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:mb-2
+    [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:mb-2
+    [&_li]:mb-1
+    [&_strong]:text-white
+    [&_h1]:text-white [&_h2]:text-white [&_h3]:text-white
+    [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-semibold
+    [&_code]:text-emerald-300
+    [&_code]:bg-[#292929]
+    [&_code]:px-1 [&_code]:rounded">
+
+    <ReactMarkdown
+      components={{
+        pre({ children }) {
+          return (
+            <pre className="my-3 p-3 overflow-x-auto rounded-lg bg-[#242424] border border-[#444] text-emerald-300 text-xs">
+              {children}
+            </pre>
+          )
+        },
+        code({ children, className }) {
+          return (
+            <code className={`${className || ''} font-mono`}>
+              {children}
+            </code>
+          )
+        }
+      }}
+    >
+      {qa.idealAnswer}
+    </ReactMarkdown>
+  </div>
+</div>
+
             </LightCard>
           ))}
         </div>
@@ -307,24 +446,30 @@ export function InterviewReportPage() {
           <Badge variant="neutral" size="sm">Section 5</Badge>
           <h4 className="text-sm font-semibold text-[#111111]">AI Evaluator Feedback</h4>
           <p className="text-xs text-[#6B6B6B] leading-relaxed">
-            Strong executive presence and clear confidence. You handle algorithmic questions with high composure; your primary differentiator will be demonstrating deeper Low-Level Design knowledge.
-          </p>
+  {aiFeedback.length > 0
+    ? aiFeedback.join(' ')
+    : 'No AI feedback available yet.'}
+</p>
         </LightCard>
 
         <LightCard className="p-5 space-y-2">
           <Badge variant="accent" size="sm">Section 6</Badge>
           <h4 className="text-sm font-semibold text-[#111111]">Recommended Practice</h4>
           <p className="text-xs text-[#6B6B6B] leading-relaxed">
-            Practice 5 DBMS index-tuning problems and review B-Tree balancing. Run another 20-minute simulation round focusing specifically on System Design fundamentals.
-          </p>
+  {improvements.length > 0
+    ? improvements.join(' ')
+    : 'Keep practising to improve your interview performance.'}
+</p>
         </LightCard>
 
         <DarkCard className="p-5 space-y-2">
           <Badge variant="dark" size="sm">Section 7</Badge>
           <h4 className="text-sm font-semibold text-white">Target Next Steps</h4>
           <p className="text-xs text-[#A0A0A0] leading-relaxed">
-            Complete the active Week 4 Dynamic Programming checklist and synchronize your updated resume metrics before your next scheduled mock interview.
-          </p>
+  {improvements.length > 0
+    ? `Focus on these areas before your next interview: ${improvements.slice(0, 3).join(' ')}`
+    : 'Continue practising and attempt another mock interview to track your progress.'}
+</p>
         </DarkCard>
       </div>
 
@@ -332,15 +477,27 @@ export function InterviewReportPage() {
       <LightCard className="p-6 space-y-4">
         <div className="flex items-center justify-between border-b border-[#E8E8E5] pb-3">
           <div>
-            <h4 className="text-sm font-semibold text-[#111111]">Session-over-Session Progression</h4>
-            <p className="text-xs text-[#6B6B6B]">Tracking score growth from first baseline simulation</p>
+          <h4 className="text-sm font-semibold text-[#111111]">
+  Question-wise Score Analysis
+</h4>
+<p className="text-xs text-[#6B6B6B]">
+  Your actual AI evaluation scores for each question
+</p>
           </div>
-          <Badge variant="success" size="sm">+16 pts total growth</Badge>
+          <Badge variant="success" size="sm">
+  {evaluatedAnswers.length} Answers Evaluated
+</Badge>
         </div>
 
         <div className="h-44 w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={SCORE_HISTORY} margin={{ top: 10, right: 20, bottom: 0, left: -20 }}>
+          <LineChart
+  data={QUESTION_ANALYSIS.map((qa) => ({
+    session: `Q${qa.qNum}`,
+    score: qa.score,
+  }))}
+  margin={{ top: 10, right: 20, bottom: 0, left: -20 }}
+>
               <CartesianGrid stroke="#E8E8E5" strokeDasharray="3 3" />
               <XAxis dataKey="session" tick={{ fontSize: 10, fill: '#6B6B6B' }} />
               <YAxis domain={[50, 100]} tick={{ fontSize: 10, fill: '#6B6B6B' }} />

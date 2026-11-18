@@ -28,30 +28,45 @@ export function Header({
   const [targetRole, setTargetRole] = useState(null)
   const [readiness, setReadiness] = useState(null)
 
-  useEffect(() => {
-    const fetchSkillGap = async () => {
-      try {
-        const data = await apiRequest('/api/skill-gap')
-        const skillGap = data.skillGap
+  
+useEffect(() => {
+  const fetchSkillGap = async () => {
+    try {
+      const data = await apiRequest('/api/skill-gap')
+      const skillGap = data.skillGap
 
-        if (skillGap) {
-          setTargetRole(skillGap.targetRole || null)
+      if (skillGap) {
+        setTargetRole(skillGap.targetRole || null)
 
-          const required = skillGap.requiredSkills || []
-          const missing = skillGap.missingSkills || []
+        const required = skillGap.requiredSkills || []
+        const missing = skillGap.missingSkills || []
 
-          if (required.length > 0) {
-            const matched = required.length - missing.length
-            setReadiness(Math.round((matched / required.length) * 100))
-          }
+        if (required.length > 0) {
+          const matched = required.length - missing.length
+          setReadiness(
+            Math.round((matched / required.length) * 100)
+          )
         }
-      } catch (error) {
-        console.error('Failed to fetch dashboard header data:', error.message)
       }
+    } catch (error) {
+      console.error(
+        'Failed to fetch dashboard header data:',
+        error.message
+      )
     }
+  }
 
-    fetchSkillGap()
-  }, [])
+  // Initial fetch
+  fetchSkillGap()
+
+  // Listen for target-role updates
+  window.addEventListener('target-role-updated', fetchSkillGap)
+
+  return () => {
+    window.removeEventListener('target-role-updated', fetchSkillGap)
+  }
+}, [])
+
 
   return (
     <header className="h-16 px-4 sm:px-8 border-b border-[#E8E8E5] bg-[#FAFAF9]/80 backdrop-blur-md sticky top-0 z-10 flex items-center justify-between">

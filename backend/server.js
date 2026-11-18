@@ -10,6 +10,11 @@ const multer = require("multer");
 
 const User = require("./models/User");
 const Skill = require("./models/Skill");
+const Interview = require("./models/Interview");
+const {
+    generateInterviewQuestions,
+    evaluateInterviewAnswers
+} = require("./services/geminiService");
 const Resume = require("./models/resume");
 const ExtractedSkill = require("./models/ExtractedSkill");
 const TargetRole = require("./models/TargetRole");
@@ -845,7 +850,7 @@ app.post(
     authMiddleware,
     async (req, res) => {
         try {
-            const { role } = req.body;
+            const { role, targetPackage } = req.body;
 
             if (!role) {
                 return res.status(400).json({
@@ -855,21 +860,49 @@ app.post(
 
             const targetRole = await TargetRole.findOneAndUpdate(
                 { userId: req.userId },
-                { role: role },
+                {
+                    role: role,
+                    targetPackage:
+                        targetPackage !== undefined
+                            ? Number(targetPackage)
+                            : null
+                },
                 {
                     new: true,
-                    upsert: true
+                    upsert: true,
+                    runValidators: true
                 }
             );
 
             res.json({
                 message: "Target role saved successfully",
-                targetRole: targetRole
+                targetRole
             });
 
         } catch (error) {
             res.status(500).json({
                 message: "Failed to save target role",
+                error: error.message
+            });
+        }
+    }
+);
+app.get(
+    "/api/target-role",
+    authMiddleware,
+    async (req, res) => {
+        try {
+            const targetRole = await TargetRole.findOne({
+                userId: req.userId
+            });
+
+            res.json({
+                targetRole
+            });
+
+        } catch (error) {
+            res.status(500).json({
+                message: "Failed to fetch target role",
                 error: error.message
             });
         }
@@ -969,13 +1002,31 @@ app.get(
             }
 
             // Get skills extracted from the user's resume
-            const extractedSkills = await ExtractedSkill.find({
-                userId: req.userId
-            });
+            // Get skills from ExtractedSkill collection
+const extractedSkills = await ExtractedSkill.find({
+    userId: req.userId
+});
 
-            const userSkills = extractedSkills.map(
-                item => item.skill
-            );
+const extractedSkillNames = extractedSkills.map(
+    item => item.skill
+);
+
+// Get skills saved through Resume Builder
+const resume = await Resume.findOne({
+    userId: req.userId
+}).sort({ updatedAt: -1 });
+
+const builderSkills = Array.isArray(resume?.resumeData?.skills)
+    ? resume.resumeData.skills
+    : [];
+
+// Combine both skill sources without duplicates
+const userSkills = [
+    ...new Set([
+        ...extractedSkillNames,
+        ...builderSkills
+    ].map(skill => skill.trim()).filter(Boolean))
+];
 
             // Find missing skills
             const missingSkills = requiredSkills.filter(
@@ -1324,6 +1375,325 @@ app.get("/api/resume/score-history", authMiddleware, async (req, res) => {
     });
   }
 });
+
+// ==================== INTERVIEW APIs ====================
+
+// START INTERVIEW
+
+app.post("/api/interviews", authMiddleware, async (req, res) => {
+    try {
+        const {
+            interviewType,
+            targetRole,
+            difficulty,
+            experienceLevel,
+            questionCount
+        } = req.body;
+
+        if (!["technical", "coding", "hr"].includes(interviewType)) {
+            return res.status(400).json({
+                message: "Invalid interview type"
+            });
+        }
+
+        if (!targetRole) {
+            return res.status(400).json({
+                message: "Target role is required"
+            });
+        }
+
+        const count = Number(questionCount) || 5;
+
+        if (!Number.isInteger(count) || count < 1 || count > 15) {
+            return res.status(400).json({
+                message: "Question count must be between 1 and 15"
+            });
+        }
+
+        // Generate questions using Gemini
+        const questions = await generateInterviewQuestions({
+            interviewType,
+            targetRole,
+            difficulty: difficulty || "Medium",
+            experienceLevel: experienceLevel || "Beginner",
+            questionCount: count
+        });
+
+        // Save interview and generated questions in MongoDB
+        const interview = await Interview.create({
+            userId: req.userId,
+            interviewType,
+            targetRole,
+            difficulty: difficulty || "Medium",
+            questions: questions.map((q) => ({
+                questionId: q.id,
+                question: q.question,
+                hint: q.hint
+            }))
+        });
+
+        res.status(201).json({
+            message: "Interview started successfully",
+            interview,
+            questions
+        });
+
+    } catch (error) {
+        console.error("Interview creation error:", error);
+
+        res.status(500).json({
+            message: "Failed to start interview",
+            error: error.message
+        });
+    }
+});
+
+// SAVE ANSWER
+
+
+
+app.put(
+    "/api/interviews/:id/answers",
+    authMiddleware,
+    async (req, res) => {
+        try {
+            const { questionId, question, answer, code, language } = req.body;
+
+            if (!questionId || !question) {
+                return res.status(400).json({
+                    message: "Question ID and question are required"
+                });
+            }
+
+            const interview = await Interview.findOne({
+                _id: req.params.id,
+                userId: req.userId,
+                status: "in-progress"
+            });
+
+            if (!interview) {
+                return res.status(404).json({
+                    message: "Active interview not found"
+                });
+            }
+
+            const answerData = {
+                questionId,
+                question,
+                answer: answer || "",
+                code: code || "",
+                language: language || "",
+                submittedAt: new Date()
+            };
+
+            const existingAnswer = interview.answers.find(
+                item => item.questionId === questionId
+            );
+
+            if (existingAnswer) {
+                Object.assign(existingAnswer, answerData);
+                existingAnswer.evaluation = undefined;
+            } else {
+                interview.answers.push(answerData);
+            }
+
+            await interview.save();
+
+            return res.status(200).json({
+                message: "Answer saved successfully"
+            });
+
+        } catch (error) {
+            console.error("Answer saving error:", error);
+
+            return res.status(500).json({
+                message: "Failed to save answer",
+                error: error.message
+            });
+        }
+    }
+);
+
+
+
+
+// COMPLETE INTERVIEW
+
+app.put(
+    "/api/interviews/:id/complete",
+    authMiddleware,
+    async (req, res) => {
+        try {
+            const interview = await Interview.findOne({
+                _id: req.params.id,
+                userId: req.userId,
+                status: "in-progress"
+            });
+
+            if (!interview) {
+                return res.status(404).json({
+                    message: "Active interview not found"
+                });
+            }
+
+            let evaluationStatus = "completed";
+
+            // Evaluate all submitted answers in one Gemini API call
+            if (interview.answers.length > 0) {
+                try {
+                    const answersForEvaluation = interview.answers.map(
+                        item => ({
+                            questionId: item.questionId,
+                            question: item.question,
+                            answer: item.answer || "",
+                            code: item.code || "",
+                            language: item.language || ""
+                        })
+                    );
+
+                    const evaluations = await evaluateInterviewAnswers({
+                        answers: answersForEvaluation,
+                        interviewType: interview.interviewType,
+                        targetRole: interview.targetRole,
+                        difficulty: interview.difficulty
+                    });
+
+                    const evaluationMap = new Map(
+                        evaluations.map(item => [
+                            item.questionId,
+                            item
+                        ])
+                    );
+
+                    // Save each evaluation against its corresponding answer
+                    for (const answer of interview.answers) {
+                        const evaluation = evaluationMap.get(
+                            answer.questionId
+                        );
+
+                        if (!evaluation) {
+                            throw new Error(
+                                `Evaluation missing for question ${answer.questionId}`
+                            );
+                        }
+
+                        answer.evaluation = {
+                            score: evaluation.score,
+                            feedback: evaluation.feedback,
+                            strengths: evaluation.strengths,
+                            improvements: evaluation.improvements,
+                            idealAnswer: evaluation.idealAnswer
+                        };
+                    }
+
+                } catch (evaluationError) {
+                    console.error(
+                        "Gemini batch evaluation error:",
+                        evaluationError
+                    );
+
+                    evaluationStatus = "failed";
+                }
+            }
+
+            // Calculate overall interview score
+let overallScore = null;
+
+if (
+    evaluationStatus === "completed" &&
+    interview.answers.length > 0
+) {
+    const totalScore = interview.answers.reduce(
+        (sum, answer) => sum + (answer.evaluation?.score || 0),
+        0
+    );
+
+    const averageScore = totalScore / interview.answers.length;
+
+    overallScore = Math.round(averageScore * 10);
+}
+
+// Complete the interview
+interview.status = "completed";
+interview.completedAt = new Date();
+
+await interview.save();
+return res.status(200).json({
+    message: evaluationStatus === "completed"
+        ? "Interview completed and evaluated successfully"
+        : "Interview completed, but AI evaluation could not be generated",
+    evaluationStatus,
+    overallScore,
+    interview
+});
+
+            return res.status(200).json({
+                message: evaluationStatus === "completed"
+                    ? "Interview completed and evaluated successfully"
+                    : "Interview completed, but AI evaluation could not be generated",
+                evaluationStatus,
+                interview
+            });
+
+        } catch (error) {
+            console.error("Interview completion error:", error);
+
+            return res.status(500).json({
+                message: "Failed to complete interview",
+                error: error.message
+            });
+        }
+    }
+);
+
+
+
+// GET USER'S INTERVIEW HISTORY
+app.get("/api/interviews", authMiddleware, async (req, res) => {
+    try {
+        const interviews = await Interview.find({
+            userId: req.userId
+        }).sort({ createdAt: -1 });
+
+        res.json({
+            message: "Interview history fetched successfully",
+            interviews
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            message: "Failed to fetch interviews",
+            error: error.message
+        });
+    }
+});
+
+app.get("/api/interviews/:id", authMiddleware, async (req, res) => {
+    try {
+        const interview = await Interview.findOne({
+            _id: req.params.id,
+            userId: req.userId
+        });
+
+        if (!interview) {
+            return res.status(404).json({
+                message: "Interview not found"
+            });
+        }
+
+        res.json({
+            message: "Interview details fetched successfully",
+            interview
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            message: "Failed to fetch interview details",
+            error: error.message
+        });
+    }
+});
+
 // ==================== MONGODB CONNECTION ====================
 
 mongoose.connect(process.env.MONGO_URI)
@@ -1471,6 +1841,12 @@ app.post("/api/ats/score", authMiddleware, async (req, res) => {
             resumeData,
             targetRole.role
         );
+        // Save ATS score to history
+await ATSScore.create({
+    userId: req.userId,
+    targetRole: targetRole.role,
+    score: result.totalScore
+});
 
         return res.status(200).json({
             message: "ATS score calculated successfully",
@@ -1482,6 +1858,70 @@ app.post("/api/ats/score", authMiddleware, async (req, res) => {
 
         return res.status(500).json({
             message: "Failed to calculate ATS score",
+            error: error.message
+        });
+    }
+});
+
+// Dashboard ATS Score - automatically detects the latest available resume
+app.get("/api/ats/dashboard-score", authMiddleware, async (req, res) => {
+    try {
+        const targetRole = await TargetRole.findOne({
+            userId: req.userId
+        });
+
+        if (!targetRole) {
+            return res.status(404).json({
+                message: "Please select a target role first"
+            });
+        }
+
+        const resumes = await Resume.find({
+            userId: req.userId
+        }).sort({ updatedAt: -1 });
+
+        let resumeData = null;
+        let source = null;
+
+        for (const resume of resumes) {
+            if (resume.resumeUrl && resume.resumeText?.trim()) {
+                resumeData = parseResumeText(resume.resumeText);
+                source = "pdf";
+                break;
+            }
+
+            if (
+                resume.resumeData &&
+                Object.keys(resume.resumeData).length > 0
+            ) {
+                resumeData = resume.resumeData;
+                source = "builder";
+                break;
+            }
+        }
+
+        if (!resumeData) {
+            return res.status(404).json({
+                message: "No available resume found"
+            });
+        }
+
+        const result = calculateATSScore(
+            resumeData,
+            targetRole.role
+        );
+
+        return res.status(200).json({
+            message: "Dashboard ATS score fetched successfully",
+            source,
+            result
+        });
+
+    } catch (error) {
+        console.error("Dashboard ATS score error:", error);
+
+        return res.status(500).json({
+            message: "Failed to fetch dashboard ATS score",
             error: error.message
         });
     }

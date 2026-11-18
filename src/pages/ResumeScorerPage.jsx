@@ -32,7 +32,7 @@ import { apiRequest } from '../services/api'
 export function ResumeScorerPage() {
   const [scanState, setScanState] = useState('idle') // 'idle' | 'scanning' | 'results' | 'error'
   const [scanStep, setScanStep] = useState(0)
-  const [fileName, setFileName] = useState('Sampath_Srinivas_Resume.pdf')
+  const [fileName, setFileName] = useState('')
   const [scoreData, setScoreData] = useState(null)
   const [scoreHistory, setScoreHistory] = useState([])
   const navigate = useNavigate()
@@ -119,116 +119,150 @@ export function ResumeScorerPage() {
     },
   ]*/
 
-  const handleResumeUpload = async (file) => {
-    if (!file) {
-      toast.show('Please select a PDF file', { type: 'error' })
-      return
-    }
+  
+const handleResumeUpload = async (file) => {
+  if (!file) {
+      toast.show('Please select a PDF file', { type: 'error' });
+      return;
+  }
 
-    if (
+  if (
       file.type !== 'application/pdf' &&
       !file.name.toLowerCase().endsWith('.pdf')
-    ) {
-      toast.show('Only PDF files are allowed', { type: 'error' })
-      return
-    }
-
-    const token = localStorage.getItem('placement_forge_token')
-
-    if (!token) {
-      toast.show('Please log in before uploading your resume', {
-        type: 'error',
-      })
-      return
-    }
-
-    const formData = new FormData()
-    formData.append('resume', file)
-
-    try {
-      setScanState('scanning')
-      setScanStep(0)
-
-      // Step 1: Upload the PDF
-      const result = await apiRequest('/api/resume/upload', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        body: formData,
-      })
-
-      // Step 2: Extract text from the uploaded PDF
-      const extractionResult = await apiRequest('/api/resume/text', {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      })
-
-      setFileName(file.name)
-      setScoreData(null)
-      setScanState('idle')
-
-      toast.show(
-        extractionResult.message || result.message ||
-          'Resume uploaded and text extracted successfully',
-        { type: 'forge' }
-      )
-    } catch (error) {
-      setScanState('idle')
-
-      toast.show(error.message || 'Resume upload failed', {
-        type: 'error',
-      })
-    }
+  ) {
+      toast.show('Only PDF files are allowed', { type: 'error' });
+      return;
   }
 
-const runScan = async () => {
-  const token = localStorage.getItem('placement_forge_token')
-
-  if (!token) {
-    toast.show('Please log in before scanning your resume', {
-      type: 'error',
-    })
-    return
-  }
+  const formData = new FormData();
+  formData.append('resume', file);
 
   try {
-    setScanState('scanning')
-    setScanStep(0)
-    setScoreData(null)
+    setFileName(file.name);
+    setScanState('scanning');
+    setScanStep(0);
 
-    const result = await apiRequest('/api/resume/score', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    })
+      // Step 1: Upload PDF
+      await apiRequest('/api/resume/upload', {
+          method: 'POST',
+          body: formData,
+      });
 
-    setScoreData(result.scoreData)
+      // Step 2: Extract PDF text
+      await apiRequest('/api/resume/text', {
+          method: 'GET',
+      });
 
-    const historyResult = await apiRequest('/api/resume/score-history', {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    })
+      // Step 3: Calculate ATS score
+      const result = await apiRequest('/api/ats/score', {
+          method: 'POST',
+          body: JSON.stringify({
+              source: 'pdf',
+          }),
+      });
 
-    setScoreHistory(historyResult.history || [])
-    setScanStep(SCAN_STEPS.length - 1)
-    setScanState('results')
+      if (!result.result) {
+          throw new Error('ATS scoring returned an invalid response');
+      }
 
-    toast.show('ATS analysis completed successfully!', {
-      type: 'success',
-    })
+      setFileName(file.name);
+      setScoreData(formatATSResult(result.result));
+      setScanStep(SCAN_STEPS.length - 1);
+      setScanState('results');
+
+      toast.show('PDF uploaded and ATS analysis completed!', {
+          type: 'success',
+      });
+
   } catch (error) {
-    setScanState('idle')
-    toast.show(error.message || 'ATS analysis failed', {
-      type: 'error',
-    })
+      setScanState('idle');
+
+      toast.show(error.message || 'Resume analysis failed', {
+          type: 'error',
+      });
   }
-}
+};
+
+  const formatATSResult = (result) => {
+    const categories = [
+        { key: 'skills', label: 'Skills', max: 40 },
+        { key: 'completeness', label: 'Resume Completeness', max: 20 },
+        { key: 'projectsAndExperience', label: 'Projects & Experience', max: 15 },
+        { key: 'education', label: 'Education', max: 10 },
+        { key: 'certifications', label: 'Certifications', max: 10 },
+        { key: 'readability', label: 'Readability & Structure', max: 5 },
+    ];
+
+    const matched = result.matchedSkills || [];
+    const missing = result.missingSkills || [];
+
+    return {
+        score: result.totalScore,
+        targetRole: result.targetRole,
+
+        categoryScores: categories.map(category => ({
+            label: category.label,
+            score: result.categoryScores[category.key] || 0,
+            max: category.max,
+        })),
+
+        matchedKeywords: [
+            ...matched,
+            ...(result.additionalRelevantSkills || []),
+        ],
+
+        missingKeywords: missing,
+
+        strengths: [
+            `${matched.length} required skills matched.`,
+            ...(result.additionalRelevantSkills?.length
+                ? [`${result.additionalRelevantSkills.length} additional relevant skills found.`]
+                : []),
+        ],
+
+        weaknesses: missing.length
+            ? [`${missing.length} required skills are missing.`]
+            : [],
+
+        suggestions: result.suggestions || [],
+    };
+};
+
+
+const runScan = async () => {
+  try {
+      setScanState('scanning');
+      setScanStep(0);
+      setScoreData(null);
+
+      const result = await apiRequest('/api/ats/score', {
+          method: 'POST',
+          body: JSON.stringify({
+              source: 'builder',
+          }),
+      });
+
+      if (!result.result) {
+          throw new Error('ATS scoring returned an invalid response');
+      }
+
+      setScoreData(formatATSResult(result.result));
+      setScanStep(SCAN_STEPS.length - 1);
+      setScanState('results');
+
+      toast.show('ATS analysis completed successfully!', {
+          type: 'success',
+      });
+
+  } catch (error) {
+      setScanState('idle');
+
+      toast.show(error.message || 'ATS analysis failed', {
+          type: 'error',
+      });
+  }
+};
+
 
   return (
     <div className="space-y-8">
@@ -396,7 +430,11 @@ const runScan = async () => {
                   >
                     <CartesianGrid stroke="#E8E8E5" strokeDasharray="3 3" />
                     <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#6B6B6B' }} />
-                    <YAxis domain={[50, 100]} tick={{ fontSize: 10, fill: '#6B6B6B' }} />
+                    <YAxis
+  type="number"
+  domain={[0, 100]}
+  tick={{ fontSize: 10, fill: '#6B6B6B' }}
+/>
                     <Tooltip
                       contentStyle={{
                         backgroundColor: '#111111',

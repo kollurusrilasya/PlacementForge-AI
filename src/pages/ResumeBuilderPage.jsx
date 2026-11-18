@@ -45,7 +45,7 @@ const EMPTY_RESUME_DATA = {
 
 export function ResumeBuilderPage() {
   const [data, setData] = useState(EMPTY_RESUME_DATA)
-
+  const [skillsText, setSkillsText] = useState('')
   const [template, setTemplate] = useState('classic')
   const [mobileTab, setMobileTab] = useState('editor') // 'editor' | 'preview'
   const toast = useToast()
@@ -57,6 +57,11 @@ export function ResumeBuilderPage() {
   
         if (response.resumeData) {
           const parsed = response.resumeData
+          setSkillsText(
+            Array.isArray(parsed.skills)
+              ? parsed.skills.join(', ')
+              : parsed.skills || ''
+          )
   
           setData({
             ...EMPTY_RESUME_DATA,
@@ -478,16 +483,18 @@ const addEducation = () => {
               <p className="text-xs text-[#6B6B6B]">Comma-separated list of engineering proficiencies.</p>
             </div>
             <textarea
-              className="w-full p-3 text-xs bg-white text-[#111111] rounded-[10px] border border-[#E8E8E5] focus:outline-none focus:ring-1 focus:ring-[#111111]"
-              rows={2}
-              value={Array.isArray(data.skills) ? data.skills.join(', ') : data.skills}
-              onChange={(e) =>
-                setData({
-                  ...data,
-                  skills: e.target.value.split(',').map((s) => s.trim()).filter(Boolean),
-                })
-              }
-            />
+  className="w-full p-3 text-xs bg-white text-[#111111] rounded-[10px] border border-[#E8E8E5] focus:outline-none focus:ring-1 focus:ring-[#111111]"
+  rows={2}
+  value={skillsText}
+  onChange={(e) => {
+    const value = e.target.value
+    setSkillsText(value)
+    setData((prev) => ({
+      ...prev,
+      skills: value.split(',').map((s) => s.trim()).filter(Boolean),
+    }))
+  }}
+/>
           </LightCard>
 
           {/* Section 5: Experience */}

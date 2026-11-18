@@ -40,6 +40,8 @@ export function DashboardPage() {
     skillGap: null,
     roadmap: null,
     targetRole: null,
+    targetPackage: null,
+    interviews: [],
   })
   
   const [loading, setLoading] = useState(true)
@@ -52,12 +54,11 @@ export function DashboardPage() {
         setDashboardError('')
   
         const results = await Promise.allSettled([
-          apiRequest('/api/ats/score', {
-            method: 'POST',
-            body: JSON.stringify({ source: 'pdf' }),
-          }),
+          apiRequest('/api/ats/dashboard-score'),
           apiRequest('/api/skill-gap'),
           apiRequest('/api/roadmap'),
+          apiRequest('/api/interviews'),
+          apiRequest('/api/target-role'),
         ])
   
         setDashboardData({
@@ -72,6 +73,12 @@ export function DashboardPage() {
             : null,
           targetRole: results[1].status === 'fulfilled'
             ? results[1].value.skillGap?.targetRole
+            : null,
+          interviews: results[3].status === 'fulfilled'
+            ? results[3].value.interviews
+            : [],
+          targetPackage: results[4].status === 'fulfilled'
+            ? results[4].value.targetRole?.targetPackage
             : null,
         })
       } catch (error) {
@@ -92,16 +99,32 @@ export function DashboardPage() {
     ? Math.round((matchedSkillCount / requiredSkills.length) * 100)
     : 0
   const roadmapSteps = dashboardData.roadmap?.roadmap || []
-
+  const latestCompletedInterview = dashboardData.interviews.find(
+    (interview) => interview.status === 'completed'
+  )
+  
+  const evaluatedAnswers = latestCompletedInterview?.answers?.filter(
+    (answer) => typeof answer.evaluation?.score === 'number'
+  ) || []
+  
+  const latestInterviewScore = evaluatedAnswers.length > 0
+  ? Math.round(
+      (evaluatedAnswers.reduce(
+        (total, answer) => total + answer.evaluation.score,
+        0
+      ) / evaluatedAnswers.length) * 10
+    )
+  : null
   const categoryScores = dashboardData.atsScore?.categoryScores || {}
-  const READINESS_DATA = [
-    { subject: 'Skills', score: categoryScores.skills ?? 0, fullMark: 40 },
-    { subject: 'Completeness', score: categoryScores.completeness ?? 0, fullMark: 20 },
-    { subject: 'Projects & Experience', score: categoryScores.projectsAndExperience ?? 0, fullMark: 15 },
-    { subject: 'Education', score: categoryScores.education ?? 0, fullMark: 10 },
-    { subject: 'Certifications', score: categoryScores.certifications ?? 0, fullMark: 10 },
-    { subject: 'Readability', score: categoryScores.readability ?? 0, fullMark: 5 },
-  ]
+
+const READINESS_DATA = [
+  { subject: 'Skills', score: ((categoryScores.skills ?? 0) / 40) * 100 },
+  { subject: 'Completeness', score: ((categoryScores.completeness ?? 0) / 20) * 100 },
+  { subject: 'Projects & Experience', score: ((categoryScores.projectsAndExperience ?? 0) / 15) * 100 },
+  { subject: 'Education', score: ((categoryScores.education ?? 0) / 10) * 100 },
+  { subject: 'Certifications', score: ((categoryScores.certifications ?? 0) / 10) * 100 },
+  { subject: 'Readability', score: ((categoryScores.readability ?? 0) / 5) * 100 },
+]
 
   const NEXT_STEPS = (dashboardData.atsScore?.suggestions || []).map((suggestion, index) => ({
     title: index < missingSkills.length ? `Learn ${missingSkills[index]}` : 'Improve Resume',
@@ -218,11 +241,29 @@ export function DashboardPage() {
             </div>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-bold tracking-tight text-[#111111]">--<span className="text-lg font-normal text-[#8E8E8E]">/100</span></span>
-            <span className="text-xs font-semibold text-[#D95B14]">Not available</span>
-          </div>
-          <ProgressIndicator value={0} variant="dark" showPercentage={false} size="sm" />
-          <p className="text-[11px] text-[#6B6B6B]">Interview results will appear after interview integration</p>
+  <span className="text-3xl font-bold tracking-tight text-[#111111]">
+    {loading ? '...' : latestInterviewScore !== null ? latestInterviewScore : '--'}
+    <span className="text-lg font-normal text-[#8E8E8E]">/100</span>
+  </span>
+  <span className="text-xs font-semibold text-[#D95B14]">
+    {latestInterviewScore !== null ? 'Latest Score' : 'Not available'}
+  </span>
+</div>
+
+<ProgressIndicator
+  value={latestInterviewScore ?? 0}
+  variant="dark"
+  showPercentage={false}
+  size="sm"
+/>
+
+<p className="text-[11px] text-[#6B6B6B]">
+  {loading
+    ? 'Loading interview score...'
+    : latestInterviewScore !== null
+      ? `Latest completed ${latestCompletedInterview.interviewType} interview`
+      : 'Complete an interview to see your score'}
+</p>
         </LightCard>
 
         {/* Skills to Improve */}
@@ -333,7 +374,11 @@ export function DashboardPage() {
                 <div className="grid grid-cols-2 gap-3 mt-6 pt-4 border-t border-[#2A2A28]">
                   <div>
                     <span className="text-[11px] text-[#8E8E8E] block">Target Package</span>
-                    <span className="text-xl font-bold text-white">Not set</span>
+                    <span className="text-xl font-bold text-white">
+  {dashboardData.targetPackage
+    ? `${dashboardData.targetPackage} LPA`
+    : 'Not set'}
+</span>
                   </div>
                   <div>
                     <span className="text-[11px] text-[#8E8E8E] block">Prep Progress</span>
@@ -486,19 +531,91 @@ export function DashboardPage() {
             description="Your latest interview simulations, scans, and roadmap milestones."
           />
 
-          <LightCard className="p-5">
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 rounded-lg bg-[#F4F4F1] text-[#111111] flex items-center justify-center shrink-0">
-                <Clock className="w-4 h-4" />
+          
+<LightCard className="p-5">
+  {dashboardData.interviews.length === 0 ? (
+    <div className="flex items-start gap-3">
+      <div className="w-8 h-8 rounded-lg bg-[#F4F4F1] text-[#111111] flex items-center justify-center shrink-0">
+        <Clock className="w-4 h-4" />
+      </div>
+      <div>
+        <h4 className="text-sm font-semibold text-[#111111]">
+          No recent activity yet
+        </h4>
+        <p className="text-xs text-[#6B6B6B] mt-1">
+          Complete your first mock interview to see your activity here.
+        </p>
+      </div>
+    </div>
+  ) : (
+    <div className="space-y-4">
+      {dashboardData.interviews.slice(0, 5).map((interview) => {
+        const evaluatedAnswers = (interview.answers || []).filter(
+          (answer) => typeof answer.evaluation?.score === 'number'
+        )
+
+        const overallScore = evaluatedAnswers.length > 0
+          ? Math.round(
+              (evaluatedAnswers.reduce(
+                (total, answer) => total + answer.evaluation.score,
+                0
+              ) / evaluatedAnswers.length) * 10
+            )
+          : null
+
+        return (
+          <div
+            key={interview._id}
+            className="flex items-center justify-between gap-3 border-b border-[#EEEEEB] last:border-0 pb-4 last:pb-0"
+          >
+            <div className="flex items-start gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-lg bg-[#F4F4F1] flex items-center justify-center shrink-0">
+                <Video className="w-4 h-4 text-[#D95B14]" />
               </div>
-              <div>
-                <h4 className="text-sm font-semibold text-[#111111]">Activity tracking not connected yet</h4>
+
+              <div className="min-w-0">
+                <h4 className="text-sm font-semibold text-[#111111] capitalize">
+                  {interview.interviewType} Interview
+                </h4>
+
                 <p className="text-xs text-[#6B6B6B] mt-1">
-                  Your interview, resume and roadmap activity will appear here once activity history is available from the backend.
+                  {interview.targetRole} · {interview.difficulty}
+                </p>
+
+                <p className="text-[11px] text-[#8E8E8A] mt-1">
+                  {new Date(
+                    interview.createdAt || interview.startedAt
+                  ).toLocaleDateString()}
                 </p>
               </div>
             </div>
-          </LightCard>
+
+            <div className="text-right shrink-0">
+              <span
+                className={`text-[10px] font-semibold px-2 py-1 rounded-full ${
+                  interview.status === 'completed'
+                    ? 'bg-green-50 text-green-700'
+                    : 'bg-yellow-50 text-yellow-700'
+                }`}
+              >
+                {interview.status === 'completed'
+                  ? 'Completed'
+                  : 'In Progress'}
+              </span>
+
+              <p className="text-sm font-bold text-[#111111] mt-2">
+                {overallScore !== null
+                  ? `${overallScore}/100`
+                  : 'Not evaluated'}
+              </p>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )}
+</LightCard>
+
         </div>
 
         {/* Quick Actions */}

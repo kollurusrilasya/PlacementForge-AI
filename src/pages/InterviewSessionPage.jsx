@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import Editor from '@monaco-editor/react'
+import { apiRequest } from '../services/api'
 import {
   PrimaryButton,
   SecondaryButton,
@@ -118,8 +119,7 @@ export function InterviewSessionPage() {
     voiceAvatar: 'female',
   }
 
-  const questionsList =
-    QUESTIONS_DATABASE[config.interviewType] || QUESTIONS_DATABASE.technical
+  const questionsList = config.questions || []
   const totalQuestions = Math.min(config.questionCount || 5, questionsList.length)
 
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -129,6 +129,9 @@ export function InterviewSessionPage() {
   )
   const [language, setLanguage] = useState('javascript')
   const [isRecording, setIsRecording] = useState(false)
+  const [speechSupported, setSpeechSupported] = useState(true)
+  const [isSpeaking, setIsSpeaking] = useState(false)
+  const [speechError, setSpeechError] = useState('')
   const [timer, setTimer] = useState(120)
   const [isPaused, setIsPaused] = useState(false)
   const [showExitModal, setShowExitModal] = useState(false)
@@ -136,36 +139,105 @@ export function InterviewSessionPage() {
   const [codeOutput, setCodeOutput] = useState('')
 
   const videoRef = useRef(null)
+  const recognitionRef = useRef(null)
   const currentQ = questionsList[currentIndex] || questionsList[0]
-
+  const isCoding = config.interviewType === 'coding'
   // Next / Submit Question
-  const handleNextQuestion = useCallback(() => {
-    if (currentIndex + 1 >= totalQuestions) {
-      setSubmitting(true)
-      toast.show('Completing session & generating rubric analysis...', { type: 'forge' })
-      setTimeout(() => {
+  const stopQuestionVoice = useCallback(() => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel()
+    }
+    setIsSpeaking(false)
+  }, [])
+
+  const handleNextQuestion = useCallback(async (saveCurrentAnswer = true) => {
+    if (!config.interviewId) {
+      toast.show('Interview ID is missing. Please start again.', {
+        type: 'error',
+      })
+      return
+    }
+  
+    if (submitting) return
+  
+    setSubmitting(true)
+  
+    try {
+      // Save the current answer
+      if (saveCurrentAnswer) {
+        await apiRequest(`/api/interviews/${config.interviewId}/answers`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            questionId: currentQ.id,
+            question: currentQ.question,
+            answer: isCoding ? '' : answer,
+            code: isCoding ? codeContent : '',
+            language: isCoding ? language : '',
+          }),
+        })
+      }
+  
+      // Finish the interview after the last question
+      if (currentIndex + 1 >= totalQuestions) {
+        await apiRequest(`/api/interviews/${config.interviewId}/complete`, {
+          method: 'PUT',
+        })
+  
+        toast.show('Interview completed successfully!', {
+          type: 'success',
+        })
+  
         navigate('/interview/report', {
           state: {
+            interviewId: config.interviewId,
             interviewType: config.interviewType,
             targetRole: config.targetRole,
             difficulty: config.difficulty,
           },
         })
-      }, 1000)
-    } else {
-      setCurrentIndex((prev) => {
-        const next = prev + 1
-        setTimer(120)
-        setAnswer('')
-        setCodeOutput('')
-        if (questionsList[next]?.starterCode) {
-          setCodeContent(questionsList[next].starterCode)
-        }
-        return next
+  
+        return
+      }
+  
+      // Move to the next question
+      const next = currentIndex + 1
+  
+      setCurrentIndex(next)
+      setTimer(120)
+      setAnswer('')
+      setCodeOutput('')
+  
+      setCodeContent(
+        questionsList[next]?.starterCode || '// Write code here\n'
+      )
+  
+      toast.show(`Question ${next + 1} of ${totalQuestions}`, {
+        type: 'info',
       })
-      toast.show(`Question ${currentIndex + 2} of ${totalQuestions}`, { type: 'info' })
+  
+    } catch (error) {
+      toast.show(error.message || 'Failed to save your answer', {
+        type: 'error',
+      })
+    } finally {
+      setSubmitting(false)
     }
-  }, [currentIndex, totalQuestions, config, navigate, questionsList, toast])
+  }, [
+    config,
+    submitting,
+    currentQ,
+    isCoding,
+    answer,
+    codeContent,
+    language,
+    currentIndex,
+    totalQuestions,
+    navigate,
+    questionsList,
+    toast,
+    stopQuestionVoice,
+  ])
+  
 
   // Timer countdown
   useEffect(() => {
@@ -189,22 +261,132 @@ export function InterviewSessionPage() {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
   }
 
-  // Toggle Recording Simulation
+  // Text-to-speech: read the current interview question aloud.
+  
+
+  const speakQuestion = useCallback(() => {
+    if (!currentQ?.question) return
+
+    if (!('speechSynthesis' in window)) {
+      toast.show('Your browser does not support interviewer voice.', { type: 'error' })
+      return
+    }
+
+    window.speechSynthesis.cancel()
+
+    const utterance = new SpeechSynthesisUtterance(currentQ.question)
+    utterance.lang = 'en-IN'
+    utterance.rate = 0.95
+    utterance.pitch = config.voiceAvatar === 'male' ? 0.9 : 1.05
+
+    const voices = window.speechSynthesis.getVoices()
+    const englishVoices = voices.filter((voice) =>
+      voice.lang?.toLowerCase().startsWith('en')
+    )
+    const preferredVoice = englishVoices.find((voice) => {
+      const name = voice.name.toLowerCase()
+      return config.voiceAvatar === 'male'
+        ? /male|david|daniel|james|alex/.test(name)
+        : /female|samantha|karen|zira|susan|victoria/.test(name)
+    }) || englishVoices.find((voice) =>
+      voice.lang?.toLowerCase() === 'en-in'
+    ) || englishVoices[0]
+
+    if (preferredVoice) utterance.voice = preferredVoice
+
+    utterance.onstart = () => setIsSpeaking(true)
+    utterance.onend = () => setIsSpeaking(false)
+    utterance.onerror = () => setIsSpeaking(false)
+
+    window.speechSynthesis.speak(utterance)
+  }, [currentQ, config.voiceAvatar, toast])
+
+  // Automatically read each new question aloud.
+  // Automatically read only when a new question appears or the interview resumes.
+useEffect(() => {
+  if (!currentQ?.question || isPaused) return
+
+  const timerId = window.setTimeout(() => {
+    speakQuestion()
+  }, 400)
+
+  return () => window.clearTimeout(timerId)
+
+// eslint-disable-next-line react-hooks/exhaustive-deps
+}, [currentIndex, currentQ?.question, isPaused])
+
+  // Stop speech and microphone recognition when the page is closed.
+  useEffect(() => {
+    return () => {
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel()
+      if (recognitionRef.current) recognitionRef.current.stop()
+    }
+  }, [])
+
+  // Speech-to-text: convert the candidate's spoken answer into editable text.
   const toggleRecording = () => {
-    if (!isRecording) {
-      setIsRecording(true)
-      toast.show('Microphone listening...', { type: 'forge' })
-      setTimeout(() => {
-        setAnswer(
-          (prev) =>
-            prev +
-            (prev ? ' ' : '') +
-            'In my experience, prioritizing algorithmic efficiency and avoiding unnecessary re-renders yields significant performance advantages.'
-        )
-      }, 1800)
-    } else {
+    if (isRecording) {
+      recognitionRef.current?.stop()
       setIsRecording(false)
-      toast.show('Microphone stopped', { type: 'info' })
+      toast.show('Recording stopped. Your transcript is ready to edit.', { type: 'info' })
+      return
+    }
+
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition
+
+    if (!SpeechRecognition) {
+      setSpeechSupported(false)
+      setSpeechError('Speech recognition is not supported in this browser. Please use Google Chrome or type your answer.')
+      toast.show('Speech recognition is unavailable in this browser.', { type: 'error' })
+      return
+    }
+
+    try {
+      const recognition = new SpeechRecognition()
+      recognitionRef.current = recognition
+      recognition.lang = 'en-IN'
+      recognition.continuous = true
+      recognition.interimResults = true
+
+      recognition.onstart = () => {
+        setIsRecording(true)
+        setSpeechError('')
+        toast.show('Listening... Speak your answer.', { type: 'forge' })
+      }
+
+      recognition.onresult = (event) => {
+        let finalTranscript = ''
+        for (let i = event.resultIndex; i < event.results.length; i += 1) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript
+          }
+        }
+
+        if (finalTranscript.trim()) {
+          setAnswer((previous) =>
+            `${previous}${previous.trim() ? ' ' : ''}${finalTranscript.trim()}`
+          )
+        }
+      }
+
+      recognition.onerror = (event) => {
+        setIsRecording(false)
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          setSpeechError('Microphone permission was denied. Allow microphone access in your browser settings.')
+        } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
+          setSpeechError(`Speech recognition error: ${event.error}`)
+        }
+      }
+
+      recognition.onend = () => {
+        setIsRecording(false)
+      }
+
+      recognition.start()
+    } catch (error) {
+      setIsRecording(false)
+      setSpeechError(error.message || 'Could not start microphone recording.')
     }
   }
 
@@ -218,7 +400,6 @@ export function InterviewSessionPage() {
     }, 600)
   }
 
-  const isCoding = config.interviewType === 'coding'
 
   return (
     <div className="space-y-6">
@@ -249,7 +430,10 @@ export function InterviewSessionPage() {
 
           {/* Pause & Exit */}
           <button
-            onClick={() => setIsPaused(!isPaused)}
+            onClick={() => {
+              if (!isPaused) stopQuestionVoice()
+              setIsPaused(!isPaused)
+            }}
             className="p-1.5 text-zinc-400 hover:text-white transition-colors"
             title={isPaused ? 'Resume' : 'Pause'}
           >
@@ -309,6 +493,26 @@ export function InterviewSessionPage() {
             <p className="text-sm sm:text-base font-semibold text-[#111111] leading-relaxed">
               {currentQ.question}
             </p>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={speakQuestion}
+                className="inline-flex items-center gap-2 rounded-lg border border-[#E8E8E5] px-3 py-2 text-xs font-semibold text-[#111111] hover:bg-[#FAFAF9]"
+              >
+                <Volume2 className="h-4 w-4 text-[#D95B14]" />
+                {isSpeaking ? 'Speaking...' : 'Repeat question'}
+              </button>
+              {isSpeaking && (
+                <button
+                  type="button"
+                  onClick={stopQuestionVoice}
+                  className="rounded-lg px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50"
+                >
+                  Stop voice
+                </button>
+              )}
+            </div>
 
             {currentQ.hint && (
               <div className="p-3 rounded-[8px] bg-[#FAFAF9] border border-[#E8E8E5] text-xs text-[#6B6B6B] flex items-start gap-2">
@@ -405,8 +609,18 @@ export function InterviewSessionPage() {
                   onChange={(e) => setAnswer(e.target.value)}
                 />
                 <p className="text-[11px] text-[#8E8E8A] mt-2">
-                  Speak clearly using the microphone button, or type directly in bullet points.
+                  Speak clearly using the microphone button. Your speech will appear here as editable text, or you can type directly.
                 </p>
+                {speechError && (
+                  <p className="mt-2 text-xs text-rose-600" role="status">
+                    {speechError}
+                  </p>
+                )}
+                {!speechSupported && (
+                  <p className="mt-1 text-xs text-[#8E8E8A]">
+                    Try Google Chrome for built-in speech recognition.
+                  </p>
+                )}
               </div>
 
               <div className="text-xs text-[#6B6B6B] flex items-center justify-between pt-3 border-t border-[#E8E8E5]">
@@ -422,7 +636,7 @@ export function InterviewSessionPage() {
               icon={SkipForward}
               onClick={() => {
                 toast.show('Question skipped', { type: 'info' })
-                handleNextQuestion()
+                handleNextQuestion(false)
               }}
             >
               Skip Question
@@ -456,6 +670,8 @@ export function InterviewSessionPage() {
               variant="danger"
               onClick={() => {
                 setShowExitModal(false)
+                stopQuestionVoice()
+                if (recognitionRef.current) recognitionRef.current.stop()
                 navigate('/interview')
               }}
             >

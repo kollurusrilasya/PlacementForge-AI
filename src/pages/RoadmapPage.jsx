@@ -177,9 +177,14 @@ export function RoadmapPage() {
     await apiRequest('/api/target-role', {
       method: 'POST',
       headers,
-      body: JSON.stringify({ role }),
+      body: JSON.stringify({
+        role,
+        targetPackage: parseInt(targetPackage, 10)
+      }),
     })
-
+    
+    // Notify the dashboard Header
+    window.dispatchEvent(new Event('target-role-updated'))
     // 2. Fetch skill gap
     const skillGapResult = await apiRequest('/api/skill-gap', {
       headers,
